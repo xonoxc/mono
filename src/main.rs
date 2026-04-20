@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use screen_time_tracker::autostart;
-use screen_time_tracker::ipc_server;
-use screen_time_tracker::session_manager::SessionManager;
-use screen_time_tracker::storage::Storage;
-use screen_time_tracker::window_manager::{self, WindowManager};
+use mono::autostart;
+use mono::ipc_server;
+use mono::session_manager::SessionManager;
+use mono::storage::Storage;
+use mono::window_manager::{self};
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
