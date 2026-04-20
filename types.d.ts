@@ -22,6 +22,7 @@ interface AppUsage {
    name: string
    window_title: string
    seconds: number
+   category?: string
 }
 
 interface DayStats {

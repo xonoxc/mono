@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
    ChevronLeft,
    ChevronRight,
@@ -13,51 +13,47 @@ import {
 } from "lucide-react"
 import "./App.css"
 
-const weeklyData = [
-   { day: "Mon", hours: 8.5, label: "Mon" },
-   { day: "Tue", hours: 6.2, label: "Tue" },
-   { day: "Wed", hours: 14.6, label: "Wed", selected: true },
-   { day: "Thu", hours: 9.4, label: "Thu" },
-   { day: "Fri", hours: 11.0, label: "Fri" },
-   { day: "Sat", hours: 4.5, label: "Sat" },
-   { day: "Sun", hours: 3.2, label: "Sun" },
-]
-
-const apps = [
-   { name: "YouTube", hours: 7, minutes: 31, icon: "youtube", color: "#FF0000" },
-   { name: "Chrome", hours: 2, minutes: 10, icon: "chrome", color: "#4285F4" },
-   { name: "Terminal", hours: 1, minutes: 45, icon: "terminal", color: "#22c55e" },
-   { name: "VS Code", hours: 1, minutes: 20, icon: "code", color: "#3b82f6" },
-   { name: "Slack", hours: 0, minutes: 52, icon: "slack", color: "#4A154B" },
-]
-
-const getAppIcon = (icon: string, color: string) => {
+const getAppIcon = (icon: string, category?: string) => {
    const iconProps = { size: 24 }
-   switch (icon) {
-      case "youtube":
-         return <Youtube {...iconProps} color={color} />
-      case "chrome":
-         return <Globe {...iconProps} color={color} />
-      case "terminal":
-         return <Terminal {...iconProps} color={color} />
-      case "code":
-         return (
-            <svg {...iconProps} viewBox="0 0 24 24" fill={color}>
-               <path
-                  d="M14.5 2.5l-1 1 5.5 5.5-5.5 5.5 1 1 6.5-6.5-6.5-6.5zM9.5 2.5l-1 1-5.5 5.5 5.5 5.5 1 1-6.5-6.5 6.5-6.5z"
-                  fill={color}
-               />
-            </svg>
-         )
-      case "slack":
-         return (
-            <svg {...iconProps} viewBox="0 0 24 24" fill={color}>
-               <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.045a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.525v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z" />
-            </svg>
-         )
-      default:
-         return <Monitor {...iconProps} color={color} />
+   const iconName = icon.toLowerCase()
+   if (iconName.includes("youtube")) return <Youtube {...iconProps} color="#FF0000" />
+   if (iconName.includes("chrome") || iconName.includes("firefox"))
+      return <Globe {...iconProps} color="#4285F4" />
+   if (
+      iconName.includes("terminal") ||
+      iconName.includes("alacritty") ||
+      iconName.includes("konsole")
+   )
+      return <Terminal {...iconProps} color="#22c55e" />
+   if (iconName.includes("code") || iconName.includes("nvim")) {
+      return (
+         <svg {...iconProps} viewBox="0 0 24 24" fill="#3b82f6">
+            <path
+               d="M14.5 2.5l-1 1 5.5 5.5-5.5 5.5 1 1 6.5-6.5-6.5-6.5zM9.5 2.5l-1 1-5.5 5.5 5.5 5.5 1 1-6.5-6.5 6.5-6.5z"
+               fill="#3b82f6"
+            />
+         </svg>
+      )
    }
+   if (iconName.includes("slack")) {
+      return (
+         <svg {...iconProps} viewBox="0 0 24 24" fill="#4A154B">
+            <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.045a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.525v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z" />
+         </svg>
+      )
+   }
+   return (
+      <Monitor
+         {...iconProps}
+         color={
+            category === "distracting"
+               ? "#ef4444"
+               : category === "productive"
+                 ? "#22c55e"
+                 : "#fffffff"
+         }
+      />
+   )
 }
 
 interface DropdownOption {
@@ -76,10 +72,83 @@ function App() {
    const [dropdownOpen, setDropdownOpen] = useState(false)
    const [selectedOption, setSelectedOption] = useState(dropdownOptions[0])
    const [selectedDay, setSelectedDay] = useState("Wed")
-   const maxHours = 16
-   const currentDate = "Wed, 21 Jun"
-   const yesterdayDate = "Tue, 20 Jun"
-   const tomorrowDate = "Thu, 22 Jun"
+   const [screenTimeData, setScreenTimeData] = useState<ScreenTimeData | null>(null)
+
+   useEffect(() => {
+      const fetchData = async () => {
+         try {
+            const data = await window.electron.getScreenTimeData()
+            if (data) {
+               setScreenTimeData(data)
+               const today = new Date(data.today_date)
+               const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+               setSelectedDay(days[today.getDay()])
+            }
+         } catch (e) {
+            console.error("Failed to fetch screen time data", e)
+         }
+      }
+      fetchData()
+      const interval = setInterval(fetchData, 5000)
+      return () => clearInterval(interval)
+   }, [])
+
+   const maxHours = Math.max(
+      1,
+      ...(screenTimeData?.weekly_stats?.map((d: any) => d.total_seconds / 3600) || [0]),
+      8
+   )
+
+   const processWeeklyData = () => {
+      if (!screenTimeData?.weekly_stats) return []
+      return screenTimeData.weekly_stats
+         .map(stat => {
+            const date = new Date(stat.date)
+            const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+            const label = days[date.getDay()]
+            return {
+               day: label,
+               hours: Number((stat.total_seconds / 3600).toFixed(1)),
+               label: label,
+            }
+         })
+         .reverse()
+   }
+
+   const weeklyData = processWeeklyData()
+   const apps = (screenTimeData?.app_usages || []).slice(0, 10).map((app: any) => ({
+      name: app.name,
+      hours: Math.floor(app.seconds / 3600),
+      minutes: Math.floor((app.seconds % 3600) / 60),
+      icon: app.name,
+      category: app.category,
+   }))
+
+   const formatSeconds = (seconds: number) => {
+      const h = Math.floor(seconds / 3600)
+      const m = Math.floor((seconds % 3600) / 60)
+      return `${h} hrs, ${m} mins`
+   }
+
+   const currentDateStr = screenTimeData?.today_date
+      ? new Date(screenTimeData.today_date).toLocaleDateString(undefined, {
+           weekday: "short",
+           day: "numeric",
+           month: "short",
+        })
+      : "Loading..."
+   const yesterdayDateStr = screenTimeData?.today_date
+      ? new Date(new Date(screenTimeData.today_date).getTime() - 86400000).toLocaleDateString(
+           undefined,
+           { weekday: "short", day: "numeric", month: "short" }
+        )
+      : ""
+   const tomorrowDateStr = screenTimeData?.today_date
+      ? new Date(new Date(screenTimeData.today_date).getTime() + 86400000).toLocaleDateString(
+           undefined,
+           { weekday: "short", day: "numeric", month: "short" }
+        )
+      : ""
 
    return (
       <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30">
@@ -131,8 +200,10 @@ function App() {
                   <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                   <span className="text-xs font-medium text-primary">Active</span>
                </div>
-               <div className="text-7xl font-bold tracking-tight">14 hrs, 38 mins</div>
-               <p className="text-muted-foreground text-lg">{currentDate}</p>
+               <div className="text-7xl font-bold tracking-tight">
+                  {screenTimeData ? formatSeconds(screenTimeData.today_seconds) : "0 hrs, 0 mins"}
+               </div>
+               <p className="text-muted-foreground text-lg">{currentDateStr}</p>
             </section>
 
             <section className="animate-fade-in" style={{ animationDelay: "0.2s" }}>
@@ -183,11 +254,11 @@ function App() {
                         />
                      </button>
                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium">{yesterdayDate}</span>
+                        <span className="text-sm font-medium">{yesterdayDateStr}</span>
                         <span className="text-sm text-muted-foreground">/</span>
-                        <span className="text-sm font-medium text-primary">{currentDate}</span>
+                        <span className="text-sm font-medium text-primary">{currentDateStr}</span>
                         <span className="text-sm text-muted-foreground">/</span>
-                        <span className="text-sm font-medium">{tomorrowDate}</span>
+                        <span className="text-sm font-medium">{tomorrowDateStr}</span>
                      </div>
                      <button className="p-2 rounded-lg hover:bg-white/10 transition-colors duration-200 group">
                         <ChevronRight
@@ -209,7 +280,7 @@ function App() {
                         style={{ animationDelay: `${0.4 + index * 0.1}s` }}
                      >
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/10">
-                           {getAppIcon(app.icon, app.color)}
+                           {getAppIcon(app.icon, app.category)}
                         </div>
                         <div className="flex-1 min-w-0">
                            <p className="font-semibold truncate">{app.name}</p>
@@ -246,4 +317,3 @@ function App() {
 }
 
 export default App
-

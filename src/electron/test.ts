@@ -50,7 +50,7 @@ export function startTracker() {
         : path.join(app.getAppPath(), "tracker-bin");
 
     try {
-        trackerProcess = spawn(trackerPath, ["watch"], {
+        trackerProcess = spawn(trackerPath, [], {
             detached: true,
             stdio: "ignore",
         });
@@ -62,42 +62,38 @@ export function startTracker() {
     }
 }
 
-export function getTrackerData(): Promise<ScreenTimeData> {
-    return new Promise((resolve, reject) => {
-        const trackerPath = app.isPackaged
-            ? path.join(process.resourcesPath, "tracker-bin")
-            : path.join(app.getAppPath(), "tracker-bin");
+export async function getTrackerData(): Promise<ScreenTimeData | null> {
+    try {
+        const todayRes = await fetch("http://127.0.0.1:9746/today-usage");
+        if (!todayRes.ok) return null;
+        const todayData = await todayRes.json();
 
-        const proc = spawn(trackerPath, ["get-data"], { shell: true });
+        const weeklyRes = await fetch("http://127.0.0.1:9746/weekly-usage");
+        if (!weeklyRes.ok) return null;
+        const weeklyData = await weeklyRes.json();
 
-        let stdout = "";
-        let stderr = "";
-
-        proc.stdout?.on("data", (data) => {
-            stdout += data.toString();
-        });
-
-        proc.stderr?.on("data", (data) => {
-            stderr += data.toString();
-        });
-
-        proc.on("close", (code) => {
-            if (code === 0 && stdout) {
-                try {
-                    const data = JSON.parse(stdout.trim());
-                    resolve(data);
-                } catch (e) {
-                    reject(new Error(`Failed to parse tracker data: ${stdout}`));
-                }
-            } else {
-                reject(new Error(`Tracker exited with code ${code}: ${stderr}`));
-            }
-        });
-
-        proc.on("error", (err) => {
-            reject(err);
-        });
-    });
+        return {
+            today_seconds: todayData.data.total_seconds,
+            today_date: todayData.data.date,
+            weekly_stats: weeklyData.data.days.map((d: any) => ({
+                date: d.date,
+                total_seconds: d.total_seconds,
+                apps: d.top_apps.reduce((acc: any, app: any) => {
+                    acc[app.app_name] = app.seconds;
+                    return acc;
+                }, {})
+            })),
+            app_usages: todayData.data.app_breakdown.map((app: any) => ({
+                name: app.app_name,
+                window_title: app.app_name, // fallback
+                seconds: app.seconds,
+                category: app.category,
+            }))
+        };
+    } catch (e) {
+        console.error("Failed to fetch from tracking daemon", e);
+        return null;
+    }
 }
 
 export interface ScreenTimeData {
