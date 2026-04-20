@@ -1,13 +1,14 @@
-use log::info;
+use log::{info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use screen_time_tracker::autostart;
 use screen_time_tracker::ipc_server;
 use screen_time_tracker::session_manager::SessionManager;
 use screen_time_tracker::storage::Storage;
-use screen_time_tracker::tracker::Tracker;
+use screen_time_tracker::window_manager::{self, WindowManager};
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -18,22 +19,28 @@ fn main() {
 
     info!("Screen Time Tracker v0.2.0 starting...");
 
-    // Initialize storage (runs migrations + crash recovery)
     let storage = Arc::new(Storage::new());
     info!("Database initialized");
 
-    // Initialize X11 tracker
-    let tracker = match Tracker::new() {
+    let tracker = match window_manager::create_manager() {
         Some(t) => t,
         None => {
-            eprintln!("ERROR: Cannot connect to X11 display. Is X11 running?");
-            eprintln!("Wayland-only sessions are not yet supported.");
+            eprintln!("ERROR: Failed to initialize window manager.");
+            eprintln!("Please ensure you're running X11 or a supported Wayland compositor (Hyprland, Sway, GNOME, KDE).");
             std::process::exit(1);
         }
     };
-    info!("X11 tracker initialized");
+    info!("Window manager initialized ({})", tracker.name());
 
-    // Set up graceful shutdown via Ctrl+C / SIGTERM
+    if !autostart::is_autostart_enabled() {
+        match autostart::setup_autostart() {
+            Ok(_) => info!("Autostart configured successfully"),
+            Err(e) => warn!("Failed to configure autostart: {}", e),
+        }
+    } else {
+        info!("Autostart already enabled");
+    }
+
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = running.clone();
     ctrlc::set_handler(move || {
@@ -43,9 +50,8 @@ fn main() {
     })
     .expect("Failed to set Ctrl+C handler");
 
-    // Start the IPC HTTP server in a background thread
     let storage_for_server = storage.clone();
-    let server_handle = thread::spawn(move || {
+    thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -58,7 +64,6 @@ fn main() {
         });
     });
 
-    // Run the session manager in the main thread
     let mut session_mgr = SessionManager::new(storage.clone(), tracker);
     info!("Session manager started — tracking active window");
 
@@ -67,7 +72,6 @@ fn main() {
         thread::sleep(Duration::from_secs(1));
     }
 
-    // Graceful shutdown
     info!("Shutting down...");
     session_mgr.shutdown();
     info!("Goodbye!");

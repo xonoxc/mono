@@ -73,6 +73,23 @@ function App() {
    const [selectedOption, setSelectedOption] = useState(dropdownOptions[0])
    const [selectedDay, setSelectedDay] = useState("Wed")
    const [screenTimeData, setScreenTimeData] = useState<ScreenTimeData | null>(null)
+   const [showAutostartPrompt, setShowAutostartPrompt] = useState(false)
+
+   useEffect(() => {
+      const hasSeenPrompt = localStorage.getItem("hasSeenAutostartPrompt")
+      if (!hasSeenPrompt) {
+         setShowAutostartPrompt(true)
+         localStorage.setItem("hasSeenAutostartPrompt", "true")
+      }
+   }, [])
+
+   const handleAutostartEnable = () => {
+      setShowAutostartPrompt(false)
+   }
+
+   const handleAutostartSkip = () => {
+      setShowAutostartPrompt(false)
+   }
 
    useEffect(() => {
       const fetchData = async () => {
@@ -308,6 +325,38 @@ function App() {
                <p className="text-sm text-muted-foreground">Screen Time Tracker</p>
             </footer>
          </div>
+
+         {showAutostartPrompt && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+               <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+               <div className="relative glass rounded-2xl p-8 max-w-md mx-4 animate-fade-in">
+                  <div className="text-center space-y-4">
+                     <div className="w-16 h-16 mx-auto rounded-2xl bg-primary/20 flex items-center justify-center">
+                        <Monitor size={32} className="text-primary" />
+                     </div>
+                     <h2 className="text-2xl font-bold">Track Your Screen Time</h2>
+                     <p className="text-muted-foreground">
+                        Enable autostart to track your screen usage from the moment you log in.
+                        This ensures accurate tracking even when the dashboard is closed.
+                     </p>
+                     <div className="flex flex-col gap-3 pt-4">
+                        <button
+                           onClick={handleAutostartEnable}
+                           className="w-full py-3 px-4 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
+                        >
+                           Enable Autostart
+                        </button>
+                        <button
+                           onClick={handleAutostartSkip}
+                           className="w-full py-3 px-4 rounded-xl bg-secondary text-secondary-foreground font-medium hover:bg-secondary/80 transition-colors"
+                        >
+                           Skip for Now
+                        </button>
+                     </div>
+                  </div>
+               </div>
+            </div>
+         )}
 
          {dropdownOpen && (
             <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />

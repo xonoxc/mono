@@ -9,6 +9,8 @@
       "dev:react": "vite",
       "dev:electron": "bun run transpile:electron && cross-env NODE_ENV=development electron .",
       "build": "bunx tsc -b && vite build",
+      "build:tracker": "cd screen-time-tracker && cargo build --release && cp target/release/screen-time-tracker ../tracker-bin",
+      "build:all": "bun run build:tracker && bun run build",
       "lint": "eslint .",
       "format": "prettier --write .",
       "preview": "vite preview",

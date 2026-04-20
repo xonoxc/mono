@@ -1,10 +1,9 @@
-use chrono::Local;
-use log::{debug, info, warn};
+use log::{debug, info};
 use std::sync::Arc;
 
 use crate::models::Session;
 use crate::storage::Storage;
-use crate::tracker::{Tracker, WindowInfo};
+use crate::window_manager::{WindowInfo, WindowManager};
 
 /// Idle threshold in seconds — after this many seconds of no input,
 /// we consider the user idle and pause the active session.
@@ -35,7 +34,7 @@ enum TrackerState {
 /// persists sessions only on state transitions (event-driven).
 pub struct SessionManager {
     storage: Arc<Storage>,
-    tracker: Tracker,
+    tracker: Box<dyn WindowManager>,
     current_session: Option<Session>,
     state: TrackerState,
     last_window: Option<WindowInfo>,
@@ -43,7 +42,7 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
-    pub fn new(storage: Arc<Storage>, tracker: Tracker) -> Self {
+    pub fn new(storage: Arc<Storage>, tracker: Box<dyn WindowManager>) -> Self {
         Self {
             storage,
             tracker,

@@ -15,3 +15,7 @@ AGENTS.md
 
 dist-electron/
 dist-*/
+
+# Binaries
+tracker-bin
+screen-time-tracker/target/

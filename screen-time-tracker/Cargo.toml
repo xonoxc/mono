@@ -31,8 +31,14 @@ tokio = { version = "1", features = ["full"] }
 # X11 window tracking + idle detection
 x11 = { version = "2.21", features = ["xlib", "xss"] }
 
+# Window detection for wayland
+sysinfo = "0.32"
+
 # System directories
 dirs = "5.0"
+
+# Command execution
+which = "6.0"
 
 # Concurrency
 parking_lot = "0.12"
