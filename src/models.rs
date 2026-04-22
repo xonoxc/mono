@@ -1,8 +1,6 @@
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
-// ─── Core Session Model ──────────────────────────────────────────
-
 /// A session represents a continuous period of using one application.
 /// Sessions are opened on window change and closed when the active window changes,
 /// idle is detected, or the daemon shuts down.
@@ -152,8 +150,6 @@ pub struct AppCategory {
     pub custom_name: Option<String>,
 }
 
-// ─── Browser Extension Payload ───────────────────────────────────
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserTabEvent {
     pub url: String,
@@ -161,8 +157,6 @@ pub struct BrowserTabEvent {
     pub domain: String,
     pub event_type: String, // "focus" | "blur" | "navigate"
 }
-
-// ─── API wrapper ─────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 pub struct ApiResponse<T: Serialize> {
