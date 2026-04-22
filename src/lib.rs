@@ -5,3 +5,8 @@ pub mod session_manager;
 pub mod storage;
 pub mod tracker;
 pub mod window_manager;
+
+pub mod tui {
+    pub mod consent;
+    pub mod db;
+}

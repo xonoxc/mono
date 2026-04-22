@@ -9,8 +9,12 @@ name = "mono"
 path = "src/tui/main.rs"
 
 [[bin]]
-name = "mono-daemon"
+name = "mono-tracker"
 path = "src/main.rs"
+
+[[bin]]
+name = "mono-cli"
+path = "src/bin/mono-cli.rs"
 
 [lib]
 name = "mono"

@@ -22,6 +22,7 @@ pub fn is_autostart_enabled() -> bool {
             return true;
         }
     }
+
     if let Some(dir) = get_systemd_user_dir() {
         if dir.join(format!("{}.service", SERVICE_NAME)).exists() {
             return true;

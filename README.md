@@ -59,8 +59,46 @@ cargo build
 # Run the TUI dashboard
 cargo run --bin mono
 
-# The daemon runs automatically on first launch
-# when you click "Enable Tracking"
+# Run CLI commands
+cargo run --bin mono-cli -- status
+```
+
+---
+
+## CLI Commands
+
+For development purposes, use the `mono-cli` binary to manage tracking:
+
+```bash
+# Check tracking status
+mono-cli status
+
+# Enable tracking and autostart
+mono-cli setup
+
+# Disable tracking and remove autostart
+mono-cli unsetup
+```
+
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `mono-cli status` | Show current consent and daemon status |
+| `mono-cli setup` | Enable tracking and register autostart |
+| `mono-cli unsetup` | Disable tracking and remove autostart |
+
+### Manual Daemon Control
+
+```bash
+# Start daemon manually
+mono-daemon
+
+# Stop daemon
+pkill mono-daemon
+
+# Check if daemon is running
+pgrep mono-daemon
 ```
 
 ---

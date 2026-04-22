@@ -15,17 +15,24 @@ pub fn get_consent_file() -> PathBuf {
 pub fn get_daemon_path() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            let daemon = parent.join("mono-daemon");
+            let daemon = parent.join("mono-tracker");
             if daemon.exists() {
                 return daemon;
             }
             // Try looking in PATH
-            if let Ok(path) = which::which("mono-daemon") {
+            if let Ok(path) = which::which("mono-tracker") {
+                return path;
+            }
+            // Try ~/.local/bin
+            let local_bin = dirs::home_dir()
+                .map(|h| h.join(".local/bin/mono-tracker"))
+                .filter(|p| p.exists());
+            if let Some(path) = local_bin {
                 return path;
             }
         }
     }
-    PathBuf::from("mono-daemon")
+    PathBuf::from("mono-tracker")
 }
 
 pub fn has_consent() -> bool {
@@ -113,9 +120,31 @@ pub fn is_daemon_running() -> bool {
     .is_ok()
 }
 
-pub fn start_daemon() -> std::io::Result<()> {
-    let daemon_path = get_daemon_path();
+pub fn remove_autostart() -> std::io::Result<()> {
+    let config_dir = get_config_dir();
+    let systemd_dir = config_dir.join("systemd").join("user");
+    let autostart_dir = config_dir.join("autostart");
+    
+    if let Some(_user) = std::env::var_os("USER") {
+        let _ = Command::new("systemctl")
+            .args(["--user", "disable", "mono.service"])
+            .output();
+        
+        let _ = fs::remove_file(systemd_dir.join("mono.service"));
+        let _ = fs::remove_file(autostart_dir.join("mono.desktop"));
+    }
+    
+    Ok(())
+}
 
+pub fn start_daemon() -> std::io::Result<()> {
+    use std::process::Stdio;
+    
+    if is_daemon_running() {
+        return Ok(());
+    }
+    
+    let daemon_path = get_daemon_path();
     if !daemon_path.exists() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -124,9 +153,21 @@ pub fn start_daemon() -> std::io::Result<()> {
     }
 
     std::process::Command::new(&daemon_path)
-        .spawn()
-        .map(|_| ())?;
-
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    Ok(())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    
+    for i in 1..=3 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if is_daemon_running() {
+            return Ok(());
+        }
+        eprint!("\rConnecting to daemon... retry {}", i);
+    }
+    
+    eprintln!("\rFailed to start daemon. Is it installed correctly?");
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Other,
+        "Failed to start daemon",
+    ))
 }
