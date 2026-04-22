@@ -1,44 +1,37 @@
 [package]
-name = "screen-time-tracker"
+name = "mono"
 version = "0.2.0"
 edition = "2021"
-description = "Privacy-first screen time tracking daemon for Linux"
+description = "Screen time tracking with TUI dashboard"
 
 [[bin]]
-name = "screen-time-tracker"
+name = "mono"
+path = "src/tui/main.rs"
+
+[[bin]]
+name = "mono-daemon"
 path = "src/main.rs"
 
+[lib]
+name = "mono"
+path = "src/lib.rs"
+
 [dependencies]
-# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-# Time
 chrono = { version = "0.4", features = ["serde"] }
-
-# Logging
 log = "0.4"
 env_logger = "0.11"
-
-# Database
 rusqlite = { version = "0.31", features = ["bundled"] }
-
-# HTTP server for IPC
 actix-web = "4"
 actix-rt = "2"
 tokio = { version = "1", features = ["full"] }
-
-# X11 window tracking + idle detection
 x11 = { version = "2.21", features = ["xlib", "xss"] }
-
-# System directories
+sysinfo = "0.32"
 dirs = "5.0"
-
-# Concurrency
+which = "6.0"
 parking_lot = "0.12"
-
-# Signal handling
 ctrlc = "3.4"
-
-# UUID for session IDs
 uuid = { version = "1", features = ["v4"] }
+ratatui = "0.29"
+crossterm = "0.28"
