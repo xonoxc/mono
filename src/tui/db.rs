@@ -1,5 +1,5 @@
 use chrono::{Datelike, Local};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -14,7 +14,13 @@ pub struct DayData {
 pub struct AppData {
     pub name: String,
     pub seconds: i64,
-    pub category: String,
+}
+
+#[derive(Clone)]
+pub struct DayStats {
+    pub apps_used: usize,
+    pub peak_hour: Option<String>,
+    pub focus_time_seconds: i64,
 }
 
 pub struct TuiData {
@@ -23,6 +29,7 @@ pub struct TuiData {
     pub app_count: usize,
     pub weekly: Vec<DayData>,
     pub apps: Vec<AppData>,
+    pub day_stats: Option<DayStats>,
     pub app_trend: Vec<u64>,
     pub live_app: Option<String>,
     pub live_seconds: i64,
@@ -40,6 +47,7 @@ impl TuiData {
             app_count: 0,
             weekly: Vec::new(),
             apps: Vec::new(),
+            day_stats: None,
             app_trend: Vec::new(),
             live_app: None,
             live_seconds: 0,
@@ -56,6 +64,7 @@ impl TuiData {
 
     pub fn refresh(&mut self) {
         let today = Local::now().format("%Y-%m-%d").to_string();
+        self.today_date = today.clone();
 
         let total: i64 = self.conn
             .query_row(
@@ -73,8 +82,7 @@ impl TuiData {
         let today = Local::now().date_naive();
         let today_str = today.format("%Y-%m-%d").to_string();
         let days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-        self.weekly.clear();
+        let mut weekly = Vec::with_capacity(7);
 
         for i in (0..7).rev() {
             let date = today - chrono::Duration::days(i);
@@ -90,13 +98,19 @@ impl TuiData {
                 )
                 .unwrap_or(0);
 
-            self.weekly.push(DayData {
+            weekly.push(DayData {
                 label: date_label,
                 date: date_str,
                 seconds: secs,
                 is_today,
             });
         }
+
+        let first_visible = weekly
+            .iter()
+            .position(|day| day.seconds > 0)
+            .unwrap_or_else(|| weekly.len().saturating_sub(1));
+        self.weekly = weekly.into_iter().skip(first_visible).collect();
     }
 
     pub fn refresh_live(&mut self) {
@@ -120,16 +134,6 @@ impl TuiData {
         }
     }
 
-    fn get_category(&self, app_name: &str) -> String {
-        self.conn
-            .query_row(
-                "SELECT category FROM app_categories WHERE app_name = ?1",
-                params![app_name],
-                |row| row.get(0),
-            )
-            .unwrap_or_else(|_| "neutral".to_string())
-    }
-
     pub fn load_day(&mut self, day_index: usize) {
         let date = self
             .weekly
@@ -138,18 +142,23 @@ impl TuiData {
             .unwrap_or_else(|| self.today_date.clone());
 
         self.apps = self.load_apps_for_date(&date);
-        self.app_count = self.apps.len();
+        self.day_stats = self.load_stats_for_date(&date);
+        self.app_count = self
+            .day_stats
+            .as_ref()
+            .map(|stats| stats.apps_used)
+            .unwrap_or_else(|| self.apps.len());
     }
 
     pub fn refresh_app_trend(&mut self, app_name: Option<&str>) {
-        self.app_trend = self
-            .weekly
-            .iter()
-            .map(|day| match app_name {
-                Some(name) => self.app_seconds_for_date(&day.date, name) as u64,
-                None => day.seconds.max(0) as u64,
-            })
-            .collect();
+        self.app_trend = match app_name {
+            Some(name) => self
+                .weekly
+                .iter()
+                .map(|day| self.app_seconds_for_date(&day.date, name).max(0) as u64)
+                .collect(),
+            None => Vec::new(),
+        };
     }
 
     pub fn weekly_average_seconds(&self) -> i64 {
@@ -173,11 +182,9 @@ impl TuiData {
                 .query_map(params![date], |row| {
                     let name: String = row.get(0)?;
                     let secs: i64 = row.get(1)?;
-                    let category = self.get_category(&name);
                     Ok(AppData {
                         name,
                         seconds: secs,
-                        category,
                     })
                 })
                 .map(|rows| rows.filter_map(|row| row.ok()).collect())
@@ -197,6 +204,56 @@ impl TuiData {
             )
             .unwrap_or(0)
     }
+
+    fn load_stats_for_date(&self, date: &str) -> Option<DayStats> {
+        let apps_used: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(DISTINCT app_name)
+                 FROM sessions
+                 WHERE date = ?1 AND is_idle = 0 AND duration_secs > 0",
+                params![date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let peak_hour = self
+            .conn
+            .query_row(
+                "SELECT CAST(strftime('%H', start_time) AS INTEGER) AS hour
+                 FROM sessions
+                 WHERE date = ?1 AND is_idle = 0 AND duration_secs > 0
+                 GROUP BY hour
+                 ORDER BY SUM(duration_secs) DESC, hour ASC
+                 LIMIT 1",
+                params![date],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .unwrap_or(None)
+            .map(format_hour_label);
+
+        let focus_time_seconds: i64 = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(SUM(duration_secs), 0)
+                 FROM sessions
+                 WHERE date = ?1 AND is_idle = 0 AND duration_secs >= 1500",
+                params![date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        if apps_used == 0 && peak_hour.is_none() && focus_time_seconds <= 0 {
+            None
+        } else {
+            Some(DayStats {
+                apps_used: apps_used.max(0) as usize,
+                peak_hour,
+                focus_time_seconds,
+            })
+        }
+    }
 }
 
 fn format_time(secs: i64) -> String {
@@ -207,4 +264,14 @@ fn format_time(secs: i64) -> String {
     } else {
         format!("{}m", m)
     }
+}
+
+fn format_hour_label(hour_24: i64) -> String {
+    let normalized = hour_24.rem_euclid(24);
+    let meridiem = if normalized >= 12 { "PM" } else { "AM" };
+    let hour_12 = match normalized % 12 {
+        0 => 12,
+        value => value,
+    };
+    format!("{hour_12} {meridiem}")
 }

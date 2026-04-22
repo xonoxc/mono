@@ -28,7 +28,9 @@ const MUTED: Color = Color::Rgb(120, 128, 140);
 const TEXT: Color = Color::Rgb(236, 239, 244);
 const SURFACE: Color = Color::Rgb(59, 66, 82);
 const ACTIVE: Color = Color::Rgb(163, 190, 140);
-const WARNING: Color = Color::Rgb(191, 97, 106);
+const WEEKLY_AXIS_MAX_HOURS: i64 = 10;
+const WEEKLY_AXIS_MAX_SECONDS: i64 = WEEKLY_AXIS_MAX_HOURS * 3600;
+const STATS_PANEL_HEIGHT: u16 = 5;
 
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
@@ -174,6 +176,7 @@ fn run_dashboard(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::R
                 .split(area);
 
             render_header(f, outer[0], &state.data, state.selected_day);
+            let show_trend = should_render_trend(&state.data);
 
             if outer[1].width >= 100 {
                 let columns = Layout::default()
@@ -184,10 +187,8 @@ fn run_dashboard(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::R
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Min(10), Constraint::Length(5)])
                     .split(columns[0]);
-                let right = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Min(8), Constraint::Length(7)])
-                    .split(columns[1]);
+                let (apps_area, stats_area, trend_area) =
+                    split_right_panel(columns[1], state.data.day_stats.is_some(), show_trend);
 
                 render_weekly(
                     f,
@@ -199,19 +200,24 @@ fn run_dashboard(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::R
                 render_live(f, left[1], &state.data, state.tick_count);
                 render_apps(
                     f,
-                    right[0],
+                    apps_area,
                     &state.data,
                     state.selected_day,
                     state.selected_app,
                     state.focused_section == SECTION_APPS,
                 );
-                render_trend(
-                    f,
-                    right[1],
-                    &state.data,
-                    state.selected_day,
-                    state.selected_app,
-                );
+                if let Some(stats_area) = stats_area {
+                    render_stats(f, stats_area, &state.data);
+                }
+                if let Some(trend_area) = trend_area {
+                    render_trend(
+                        f,
+                        trend_area,
+                        &state.data,
+                        state.selected_day,
+                        state.selected_app,
+                    );
+                }
             } else {
                 let stack = Layout::default()
                     .direction(Direction::Vertical)
@@ -219,9 +225,10 @@ fn run_dashboard(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::R
                         Constraint::Min(10),
                         Constraint::Length(5),
                         Constraint::Min(7),
-                        Constraint::Length(7),
                     ])
                     .split(outer[1]);
+                let (apps_area, stats_area, trend_area) =
+                    split_right_panel(stack[2], state.data.day_stats.is_some(), show_trend);
 
                 render_weekly(
                     f,
@@ -233,19 +240,24 @@ fn run_dashboard(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::R
                 render_live(f, stack[1], &state.data, state.tick_count);
                 render_apps(
                     f,
-                    stack[2],
+                    apps_area,
                     &state.data,
                     state.selected_day,
                     state.selected_app,
                     state.focused_section == SECTION_APPS,
                 );
-                render_trend(
-                    f,
-                    stack[3],
-                    &state.data,
-                    state.selected_day,
-                    state.selected_app,
-                );
+                if let Some(stats_area) = stats_area {
+                    render_stats(f, stats_area, &state.data);
+                }
+                if let Some(trend_area) = trend_area {
+                    render_trend(
+                        f,
+                        trend_area,
+                        &state.data,
+                        state.selected_day,
+                        state.selected_app,
+                    );
+                }
             }
 
             render_footer(f, outer[2]);
@@ -302,10 +314,11 @@ impl DashboardState {
         let mut data = TuiData::new();
         data.refresh();
         data.refresh_live();
+        let selected_day = data.weekly.len().saturating_sub(1);
         let mut state = Self {
             data,
             selected_app: 0,
-            selected_day: 6,
+            selected_day,
             tick_count: 0,
             focused_section: SECTION_APPS,
         };
@@ -425,7 +438,7 @@ fn render_header(f: &mut Frame, area: Rect, data: &TuiData, selected_day: usize)
         ),
         Span::styled("  |  ", Style::default().fg(MUTED)),
         Span::styled(
-            format!("Focus {}", selected_label),
+            format!("Selected {}", selected_label),
             Style::default().fg(ACCENT),
         ),
     ]);
@@ -451,7 +464,7 @@ fn render_weekly(f: &mut Frame, area: Rect, data: &TuiData, selected_day: usize,
     let title = Line::from(vec![
         Span::styled(
             " Weekly ",
-            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+            Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
         ),
         Span::styled(subtitle, Style::default().fg(ACCENT)),
     ]);
@@ -467,36 +480,19 @@ fn render_weekly(f: &mut Frame, area: Rect, data: &TuiData, selected_day: usize,
         return;
     }
 
-    let sections = if inner.height >= 9 {
-        Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Min(4),
-                Constraint::Length(1),
-            ])
-            .split(inner)
-    } else {
-        Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(4), Constraint::Length(1)])
-            .split(inner)
-    };
-
-    let (info_area, chart_area, labels_area) = if sections.len() == 3 {
-        (Some(sections[0]), sections[1], sections[2])
-    } else {
-        (None, sections[0], sections[1])
-    };
-
-    if let Some(info_area) = info_area {
-        let info = Paragraph::new(format!(
-            "sqrt scale | avg {} | selected day drives the right panel",
-            format_duration(data.weekly_average_seconds())
-        ))
-        .style(Style::default().fg(MUTED));
-        f.render_widget(info, info_area);
+    if data.weekly.len() == 1 {
+        if let Some(day) = data.weekly.first() {
+            render_single_day_summary(f.buffer_mut(), inner, day);
+        }
+        return;
     }
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(4), Constraint::Length(1)])
+        .split(inner);
+    let chart_area = sections[0];
+    let labels_area = sections[1];
 
     let chart_parts = Layout::default()
         .direction(Direction::Horizontal)
@@ -511,7 +507,6 @@ fn render_weekly(f: &mut Frame, area: Rect, data: &TuiData, selected_day: usize,
         &data.weekly,
         &slots,
         selected_day,
-        data.weekly_average_seconds(),
     );
     draw_day_labels(
         f.buffer_mut(),
@@ -539,7 +534,7 @@ fn render_apps(
     let title = Line::from(vec![
         Span::styled(
             " Applications ",
-            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+            Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
         ),
         Span::styled(day_label, Style::default().fg(PRIMARY)),
     ]);
@@ -576,11 +571,44 @@ fn render_apps(
             row,
             app.name.as_str(),
             app.seconds,
-            app.category.as_str(),
             max_value,
+            index == 0,
             index == selected_app,
         );
     }
+}
+
+fn render_stats(f: &mut Frame, area: Rect, data: &TuiData) {
+    let Some(stats) = data.day_stats.as_ref() else {
+        return;
+    };
+
+    let inner = render_panel(
+        f,
+        area,
+        Line::from(Span::styled(
+            " Stats ",
+            Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
+        )),
+        MUTED,
+    );
+    if inner.width < 18 || inner.height < 3 {
+        return;
+    }
+
+    let lines = vec![
+        stats_line("Apps used:", stats.apps_used.to_string()),
+        stats_line(
+            "Peak hour:",
+            stats
+                .peak_hour
+                .clone()
+                .unwrap_or_else(|| "None".to_string()),
+        ),
+        stats_line("Focus time:", format_duration(stats.focus_time_seconds)),
+    ];
+    let paragraph = Paragraph::new(lines);
+    f.render_widget(paragraph, inner);
 }
 
 fn render_live(f: &mut Frame, area: Rect, data: &TuiData, tick: usize) {
@@ -658,11 +686,11 @@ fn render_trend(
         .apps
         .get(selected_app)
         .map(|app| truncate_text(&app.name, 16))
-        .unwrap_or_else(|| "day totals".to_string());
+        .unwrap_or_else(|| "selected app".to_string());
     let title = Line::from(vec![
         Span::styled(
             " Trend ",
-            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+            Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!(" {}", trend_label), Style::default().fg(ACCENT)),
     ]);
@@ -706,6 +734,44 @@ fn render_panel(f: &mut Frame, area: Rect, title: Line<'_>, border_color: Color)
     inner
 }
 
+fn render_single_day_summary(buf: &mut Buffer, area: Rect, day: &db::DayData) {
+    if area.width < 12 || area.height == 0 {
+        return;
+    }
+
+    let label = if day.is_today {
+        "Today"
+    } else {
+        day.label.as_str()
+    };
+    let value = format_duration(day.seconds);
+    let prefix = format!("{label}: ");
+    let y = area.y + area.height.saturating_sub(1) / 2;
+
+    let bar_space = area
+        .width
+        .saturating_sub(prefix.len() as u16)
+        .saturating_sub(value.len() as u16)
+        .saturating_sub(1) as usize;
+    let fill_ratio = (day.seconds as f64 / WEEKLY_AXIS_MAX_SECONDS as f64).clamp(0.0, 1.0);
+    let filled = if day.seconds > 0 && bar_space > 0 {
+        ((fill_ratio * bar_space as f64).round() as usize).clamp(1, bar_space)
+    } else {
+        0
+    };
+    let bar = "█".repeat(filled);
+
+    buf.set_string(area.x, y, &prefix, Style::default().fg(MUTED));
+    buf.set_string(
+        area.x + prefix.len() as u16,
+        y,
+        bar,
+        Style::default().fg(ACCENT),
+    );
+    let value_x = area.right().saturating_sub(value.len() as u16);
+    buf.set_string(value_x, y, value, Style::default().fg(TEXT));
+}
+
 fn render_apps_header(buf: &mut Buffer, area: Rect) {
     if area.width < 12 || area.height == 0 {
         return;
@@ -725,8 +791,8 @@ fn render_app_row(
     area: Rect,
     name: &str,
     seconds: i64,
-    category: &str,
     max_value: i64,
+    is_top_app: bool,
     selected: bool,
 ) {
     if area.width < 12 || area.height == 0 {
@@ -740,16 +806,19 @@ fn render_app_row(
     let parts = app_row_parts(area);
     let name_style = if selected {
         Style::default().fg(TEXT).add_modifier(Modifier::BOLD)
-    } else {
+    } else if is_top_app {
         Style::default().fg(TEXT)
+    } else {
+        Style::default().fg(MUTED)
     };
-    let bar_style = Style::default().fg(if selected {
+    let bar_color = if selected || is_top_app {
         ACCENT
     } else {
-        category_color(category)
-    });
+        MUTED
+    };
+    let bar_style = Style::default().fg(bar_color);
     let bar_bg_style = Style::default().fg(SURFACE);
-    let value_style = if selected {
+    let value_style = if selected || is_top_app {
         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(MUTED)
@@ -790,6 +859,13 @@ fn render_app_row(
     buf.set_stringn(x, area.y, value, parts[2].width as usize, value_style);
 }
 
+fn stats_line(label: &str, value: String) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(format!("{label:<11}"), Style::default().fg(MUTED)),
+        Span::styled(value, Style::default().fg(TEXT)),
+    ])
+}
+
 fn draw_weekly_plot(
     buf: &mut Buffer,
     y_axis_area: Rect,
@@ -797,50 +873,23 @@ fn draw_weekly_plot(
     days: &[db::DayData],
     slots: &[(u16, u16)],
     selected_day: usize,
-    average_seconds: i64,
 ) {
     if plot_area.width == 0 || plot_area.height == 0 {
         return;
     }
 
-    let peak_seconds = days
-        .iter()
-        .map(|day| day.seconds)
-        .max()
-        .unwrap_or(0)
-        .max(average_seconds)
-        .max(1);
-    let axis_hours = round_up_even_hours(peak_seconds).max(4);
-    let axis_max_seconds = axis_hours * 3600;
-    let tick_hours = if axis_hours <= 12 {
-        2
-    } else if axis_hours <= 24 {
-        4
-    } else {
-        6
-    };
-
-    for tick in (0..=axis_hours).step_by(tick_hours as usize) {
-        let tick_seconds = tick * 3600;
-        let y = value_row(tick_seconds, axis_max_seconds, plot_area);
-        let label = format!("{:>2}h", tick);
+    for tick_hour in (0..=WEEKLY_AXIS_MAX_HOURS).step_by(2) {
+        let tick_seconds = tick_hour * 3600;
+        let y = value_row(tick_seconds, WEEKLY_AXIS_MAX_SECONDS, plot_area);
+        let label = format!("{tick_hour}h");
         let label_x = y_axis_area.right().saturating_sub(label.len() as u16);
         buf.set_string(label_x, y, label, Style::default().fg(MUTED));
 
         for x in plot_area.left()..plot_area.right() {
-            let symbol = if tick == 0 { "─" } else { "┈" };
+            let symbol = if tick_hour == 0 { "─" } else { "┈" };
             buf[(x, y)]
                 .set_symbol(symbol)
                 .set_style(Style::default().fg(SURFACE));
-        }
-    }
-
-    if average_seconds > 0 {
-        let avg_y = value_row(average_seconds, axis_max_seconds, plot_area);
-        for x in plot_area.left()..plot_area.right() {
-            buf[(x, avg_y)]
-                .set_symbol("─")
-                .set_style(Style::default().fg(MUTED));
         }
     }
 
@@ -848,7 +897,7 @@ fn draw_weekly_plot(
         let Some((start_x, width)) = slots.get(index).copied() else {
             continue;
         };
-        let filled_rows = value_height(day.seconds, axis_max_seconds, plot_area.height);
+        let filled_rows = value_height(day.seconds, WEEKLY_AXIS_MAX_SECONDS, plot_area.height);
         if filled_rows == 0 {
             continue;
         }
@@ -858,7 +907,7 @@ fn draw_weekly_plot(
         } else if day.is_today {
             PRIMARY
         } else {
-            Color::Rgb(129, 161, 193)
+            MUTED
         });
         let top = plot_area.bottom().saturating_sub(filled_rows);
         for y in top..plot_area.bottom() {
@@ -869,6 +918,45 @@ fn draw_weekly_plot(
             }
         }
     }
+}
+
+fn split_right_panel(
+    area: Rect,
+    has_stats: bool,
+    show_trend: bool,
+) -> (Rect, Option<Rect>, Option<Rect>) {
+    match (has_stats, show_trend) {
+        (true, true) => {
+            let sections = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(50),
+                    Constraint::Length(STATS_PANEL_HEIGHT),
+                    Constraint::Min(0),
+                ])
+                .split(area);
+            (sections[0], Some(sections[1]), Some(sections[2]))
+        }
+        (true, false) => {
+            let sections = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(0), Constraint::Length(STATS_PANEL_HEIGHT)])
+                .split(area);
+            (sections[0], Some(sections[1]), None)
+        }
+        (false, true) => {
+            let sections = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(60), Constraint::Min(0)])
+                .split(area);
+            (sections[0], None, Some(sections[1]))
+        }
+        (false, false) => (area, None, None),
+    }
+}
+
+fn should_render_trend(data: &TuiData) -> bool {
+    data.app_trend.len() >= 2 && data.app_trend.iter().filter(|&&value| value > 0).count() > 1
 }
 
 fn draw_day_labels(
@@ -912,12 +1000,24 @@ fn draw_day_labels(
 }
 
 fn app_row_parts(area: Rect) -> [Rect; 3] {
-    let name_width = area.width.clamp(12, 18);
-    let value_width = area.width.clamp(7, 9);
+    let value_width = if area.width >= 24 {
+        8
+    } else {
+        area.width.saturating_sub(7).min(8).max(5)
+    };
+    let name_width = if area.width >= 24 {
+        12
+    } else {
+        area.width
+            .saturating_sub(value_width)
+            .saturating_sub(1)
+            .min(12)
+            .max(6)
+    };
     let constraints = [
-        Constraint::Length(name_width.min(area.width.saturating_sub(8))),
-        Constraint::Min(4),
-        Constraint::Length(value_width.min(area.width.saturating_sub(4))),
+        Constraint::Length(name_width),
+        Constraint::Min(0),
+        Constraint::Length(value_width),
     ];
     let parts = Layout::default()
         .direction(Direction::Horizontal)
@@ -1001,18 +1101,12 @@ fn expand_sparkline_data(
     sparkline
 }
 
-fn round_up_even_hours(seconds: i64) -> i64 {
-    let hours = ((seconds as f64) / 3600.0).ceil() as i64;
-    let rounded = ((hours + 1) / 2) * 2;
-    rounded.max(2)
-}
-
 fn value_height(value: i64, max_value: i64, height: u16) -> u16 {
     if value <= 0 || max_value <= 0 || height == 0 {
         return 0;
     }
 
-    let ratio = (value as f64 / max_value as f64).clamp(0.0, 1.0).sqrt();
+    let ratio = (value as f64 / max_value as f64).clamp(0.0, 1.0);
     let filled = (ratio * height as f64).ceil() as u16;
     filled.clamp(1, height)
 }
@@ -1023,14 +1117,6 @@ fn value_row(value: i64, max_value: i64, area: Rect) -> u16 {
         area.bottom().saturating_sub(1)
     } else {
         area.bottom().saturating_sub(height)
-    }
-}
-
-fn category_color(category: &str) -> Color {
-    match category {
-        "productive" => ACTIVE,
-        "distracting" => WARNING,
-        _ => PRIMARY,
     }
 }
 
@@ -1097,6 +1183,7 @@ mod tests {
             .split(f.area());
 
         render_header(f, outer[0], data, 6);
+        let show_trend = should_render_trend(data);
 
         if outer[1].width >= 100 {
             let columns = Layout::default()
@@ -1107,15 +1194,18 @@ mod tests {
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Min(10), Constraint::Length(5)])
                 .split(columns[0]);
-            let right = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(8), Constraint::Length(7)])
-                .split(columns[1]);
+            let (apps_area, stats_area, trend_area) =
+                split_right_panel(columns[1], data.day_stats.is_some(), show_trend);
 
             render_weekly(f, left[0], data, 6, true);
             render_live(f, left[1], data, 0);
-            render_apps(f, right[0], data, 6, 0, true);
-            render_trend(f, right[1], data, 6, 0);
+            render_apps(f, apps_area, data, 6, 0, true);
+            if let Some(stats_area) = stats_area {
+                render_stats(f, stats_area, data);
+            }
+            if let Some(trend_area) = trend_area {
+                render_trend(f, trend_area, data, 6, 0);
+            }
         } else {
             let stack = Layout::default()
                 .direction(Direction::Vertical)
@@ -1123,14 +1213,20 @@ mod tests {
                     Constraint::Min(10),
                     Constraint::Length(5),
                     Constraint::Min(7),
-                    Constraint::Length(7),
                 ])
                 .split(outer[1]);
+            let (apps_area, stats_area, trend_area) =
+                split_right_panel(stack[2], data.day_stats.is_some(), show_trend);
 
             render_weekly(f, stack[0], data, 6, true);
             render_live(f, stack[1], data, 0);
-            render_apps(f, stack[2], data, 6, 0, true);
-            render_trend(f, stack[3], data, 6, 0);
+            render_apps(f, apps_area, data, 6, 0, true);
+            if let Some(stats_area) = stats_area {
+                render_stats(f, stats_area, data);
+            }
+            if let Some(trend_area) = trend_area {
+                render_trend(f, trend_area, data, 6, 0);
+            }
         }
 
         render_footer(f, outer[2]);
@@ -1188,19 +1284,21 @@ mod tests {
             db::AppData {
                 name: "kitty".to_string(),
                 seconds: 83 * 60,
-                category: "productive".to_string(),
             },
             db::AppData {
                 name: "helium".to_string(),
                 seconds: 44 * 60,
-                category: "neutral".to_string(),
             },
             db::AppData {
                 name: "opencode-with-a-surprisingly-long-name".to_string(),
                 seconds: 21 * 60,
-                category: "productive".to_string(),
             },
         ];
+        data.day_stats = Some(db::DayStats {
+            apps_used: 6,
+            peak_hour: Some("3 PM".to_string()),
+            focus_time_seconds: 4 * 3600 + 12 * 60,
+        });
         data.app_trend = vec![0, 15 * 60, 5 * 60, 25 * 60, 30 * 60, 40 * 60, 83 * 60]
             .into_iter()
             .map(|value| value as u64)
