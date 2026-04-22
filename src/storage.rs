@@ -1,9 +1,9 @@
 use chrono::{DateTime, Local};
 use log::{error, info, warn};
+use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 use crate::models::*;
 
@@ -27,8 +27,9 @@ impl Storage {
              PRAGMA synchronous = NORMAL;
              PRAGMA cache_size = -2000;
              PRAGMA temp_store = MEMORY;
-             PRAGMA busy_timeout = 5000;"
-        ).expect("Failed to set pragmas");
+             PRAGMA busy_timeout = 5000;",
+        )
+        .expect("Failed to set pragmas");
 
         let storage = Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -93,8 +94,9 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_time);
             CREATE INDEX IF NOT EXISTS idx_sessions_end ON sessions(end_time);
             CREATE INDEX IF NOT EXISTS idx_browser_date ON browser_sessions(date);
-            CREATE INDEX IF NOT EXISTS idx_browser_domain ON browser_sessions(domain, date);"
-        ).expect("Failed to run migrations");
+            CREATE INDEX IF NOT EXISTS idx_browser_domain ON browser_sessions(domain, date);",
+        )
+        .expect("Failed to run migrations");
 
         // Seed default categories
         Self::seed_categories(&conn);
@@ -153,21 +155,27 @@ impl Storage {
         let conn = self.conn.lock();
         let now = Local::now().to_rfc3339();
 
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM sessions WHERE end_time IS NULL",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0);
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE end_time IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
         if count > 0 {
-            warn!("Recovering {} incomplete sessions from previous crash", count);
+            warn!(
+                "Recovering {} incomplete sessions from previous crash",
+                count
+            );
             conn.execute(
                 "UPDATE sessions SET
                     end_time = ?1,
                     duration_secs = CAST((julianday(?1) - julianday(start_time)) * 86400 AS INTEGER)
                 WHERE end_time IS NULL",
                 params![now],
-            ).ok();
+            )
+            .ok();
         }
     }
 
@@ -199,7 +207,8 @@ impl Storage {
         conn.execute(
             "UPDATE sessions SET end_time = ?1, duration_secs = ?2 WHERE id = ?3",
             params![end_time.to_rfc3339(), duration, session_id],
-        ).unwrap_or_else(|e| {
+        )
+        .unwrap_or_else(|e| {
             error!("Failed to close session {}: {}", session_id, e);
             0
         });
@@ -258,29 +267,33 @@ impl Storage {
             |row| row.get(0),
         ).unwrap_or(0);
 
-        let mut stmt = conn.prepare(
-            "SELECT app_name, SUM(duration_secs) as total
+        let mut stmt = conn
+            .prepare(
+                "SELECT app_name, SUM(duration_secs) as total
              FROM sessions
              WHERE date = ?1 AND is_idle = 0
              GROUP BY app_name
-             ORDER BY total DESC"
-        ).unwrap();
+             ORDER BY total DESC",
+            )
+            .unwrap();
 
-        let app_breakdown: Vec<AppBreakdown> = stmt.query_map(params![date], |row| {
-            let app_name: String = row.get(0)?;
-            let seconds: i64 = row.get(1)?;
-            Ok((app_name, seconds))
-        }).unwrap()
-        .filter_map(|r| r.ok())
-        .map(|(app_name, seconds)| {
-            let category = self.get_category_unlocked(&conn, &app_name);
-            AppBreakdown {
-                app_name,
-                seconds,
-                category,
-            }
-        })
-        .collect();
+        let app_breakdown: Vec<AppBreakdown> = stmt
+            .query_map(params![date], |row| {
+                let app_name: String = row.get(0)?;
+                let seconds: i64 = row.get(1)?;
+                Ok((app_name, seconds))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .map(|(app_name, seconds)| {
+                let category = self.get_category_unlocked(&conn, &app_name);
+                AppBreakdown {
+                    app_name,
+                    seconds,
+                    category,
+                }
+            })
+            .collect();
 
         let idle_seconds: i64 = conn.query_row(
             "SELECT COALESCE(SUM(duration_secs), 0) FROM sessions WHERE date = ?1 AND is_idle = 1",
@@ -313,7 +326,11 @@ impl Storage {
         }
 
         let total: i64 = days.iter().map(|d| d.total_seconds).sum();
-        let avg = if days.is_empty() { 0 } else { total / days.len() as i64 };
+        let avg = if days.is_empty() {
+            0
+        } else {
+            total / days.len() as i64
+        };
 
         WeeklyUsage {
             days,
@@ -327,19 +344,22 @@ impl Storage {
         let target_date = date.unwrap_or(&today);
 
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT app_name, SUM(duration_secs) as total
+        let mut stmt = conn
+            .prepare(
+                "SELECT app_name, SUM(duration_secs) as total
              FROM sessions
              WHERE date = ?1 AND is_idle = 0
              GROUP BY app_name
-             ORDER BY total DESC"
-        ).unwrap();
+             ORDER BY total DESC",
+            )
+            .unwrap();
 
         stmt.query_map(params![target_date], |row| {
             let app_name: String = row.get(0)?;
             let seconds: i64 = row.get(1)?;
             Ok((app_name, seconds))
-        }).unwrap()
+        })
+        .unwrap()
         .filter_map(|r| r.ok())
         .map(|(app_name, seconds)| {
             let category = self.get_category_unlocked(&conn, &app_name);
@@ -376,7 +396,8 @@ impl Storage {
                 is_idle: row.get::<_, i32>(6)? != 0,
                 date: row.get(7)?,
             })
-        }).unwrap()
+        })
+        .unwrap()
         .filter_map(|r| r.ok())
         .collect()
     }
@@ -386,13 +407,15 @@ impl Storage {
         let today = Local::now().format("%Y-%m-%d").to_string();
         let target = date.unwrap_or(&today);
 
-        let mut stmt = conn.prepare(
-            "SELECT domain, SUM(duration_secs) as total, COUNT(*) as visits
+        let mut stmt = conn
+            .prepare(
+                "SELECT domain, SUM(duration_secs) as total, COUNT(*) as visits
              FROM browser_sessions
              WHERE date = ?1
              GROUP BY domain
-             ORDER BY total DESC"
-        ).unwrap();
+             ORDER BY total DESC",
+            )
+            .unwrap();
 
         stmt.query_map(params![target], |row| {
             Ok(WebsiteUsage {
@@ -400,7 +423,8 @@ impl Storage {
                 total_seconds: row.get(1)?,
                 visits: row.get(2)?,
             })
-        }).unwrap()
+        })
+        .unwrap()
         .filter_map(|r| r.ok())
         .collect()
     }
@@ -474,14 +498,15 @@ impl Storage {
         conn.execute(
             "INSERT OR REPLACE INTO app_categories (app_name, category) VALUES (?1, ?2)",
             params![app_name, category],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn get_all_categories(&self) -> Vec<AppCategory> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT app_name, category, custom_name FROM app_categories ORDER BY app_name"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT app_name, category, custom_name FROM app_categories ORDER BY app_name")
+            .unwrap();
 
         stmt.query_map([], |row| {
             Ok(AppCategory {
@@ -489,7 +514,8 @@ impl Storage {
                 category: row.get(1)?,
                 custom_name: row.get(2)?,
             })
-        }).unwrap()
+        })
+        .unwrap()
         .filter_map(|r| r.ok())
         .collect()
     }

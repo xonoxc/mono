@@ -69,7 +69,9 @@ impl SessionManager {
             Some(SessionEvent::IdleStarted)
         } else if idle_secs < IDLE_THRESHOLD_SECS && self.was_idle {
             // Came back from idle
-            current_window.as_ref().map(|w| SessionEvent::IdleEnded(w.clone()))
+            current_window
+                .as_ref()
+                .map(|w| SessionEvent::IdleEnded(w.clone()))
         } else if !self.was_idle {
             // Check if window changed
             if let Some(ref window) = current_window {
@@ -98,8 +100,7 @@ impl SessionManager {
         match &self.last_window {
             None => true,
             Some(last) => {
-                last.app_name != new_window.app_name
-                    || last.window_title != new_window.window_title
+                last.app_name != new_window.app_name || last.window_title != new_window.window_title
             }
         }
     }
@@ -107,7 +108,10 @@ impl SessionManager {
     fn handle_event(&mut self, event: SessionEvent) {
         match event {
             SessionEvent::WindowChanged(window) => {
-                debug!("Window changed → {} [{}]", window.app_name, window.window_title);
+                debug!(
+                    "Window changed → {} [{}]",
+                    window.app_name, window.window_title
+                );
                 self.close_current_session();
                 self.open_session(window);
             }
@@ -150,10 +154,7 @@ impl SessionManager {
             &window.app_name
         };
 
-        let session = Session::new(
-            app.to_string(),
-            window.window_title.clone(),
-        );
+        let session = Session::new(app.to_string(), window.window_title.clone());
 
         self.storage.insert_session(&session);
         self.current_session = Some(session);

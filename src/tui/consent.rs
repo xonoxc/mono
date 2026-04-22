@@ -35,7 +35,7 @@ pub fn has_consent() -> bool {
 pub fn set_consent(granted: bool) -> std::io::Result<()> {
     let dir = get_config_dir();
     fs::create_dir_all(&dir)?;
-    
+
     if granted {
         fs::write(get_consent_file(), "1")?;
         setup_autostart()?;
@@ -58,7 +58,8 @@ pub fn setup_autostart() -> std::io::Result<()> {
         ));
     }
 
-    let systemd_service = format!(r#"[Unit]
+    let systemd_service = format!(
+        r#"[Unit]
 Description=Mono Screen Time Tracker
 After=graphical-session.target
 
@@ -70,16 +71,21 @@ RestartSec=10
 
 [Install]
 WantedBy=graphical-session.target
-"#, daemon_path.display());
+"#,
+        daemon_path.display()
+    );
 
-    let desktop_entry = format!(r#"[Desktop Entry]
+    let desktop_entry = format!(
+        r#"[Desktop Entry]
 Type=Application
 Name=Mono Screen Time Tracker
 Exec={}
 Hidden=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
-"#, daemon_path.display());
+"#,
+        daemon_path.display()
+    );
 
     if let Some(user) = std::env::var_os("USER") {
         let _ = fs::create_dir_all(&systemd_dir);
@@ -109,7 +115,7 @@ pub fn is_daemon_running() -> bool {
 
 pub fn start_daemon() -> std::io::Result<()> {
     let daemon_path = get_daemon_path();
-    
+
     if !daemon_path.exists() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,

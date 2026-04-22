@@ -21,3 +21,5 @@ tracker-bin
 screen-time-tracker/target/
 target/
 debug/
+
+.codex

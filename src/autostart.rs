@@ -52,25 +52,24 @@ fn try_setup_systemd() -> Result<(), Box<dyn std::error::Error>> {
     let systemd_dir = get_systemd_user_dir().ok_or("No systemd user dir")?;
     fs::create_dir_all(&systemd_dir)?;
 
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("Failed to get exe path: {}", e))?;
+    let exe_path = std::env::current_exe().map_err(|e| format!("Failed to get exe path: {}", e))?;
 
     let service_content = format!(
         r#"[Unit]
-Description=Screen Time Tracker - Privacy-first screen time monitoring
-After=graphical-session.target
-PartOf=graphical-session.target
+        Description=Screen Time Tracker - Privacy-first screen time monitoring
+        After=graphical-session.target
+        PartOf=graphical-session.target
 
-[Service]
-Type=simple
-ExecStart={}
-Restart=on-failure
-RestartSec=10
-Environment=RUST_LOG=info
+        [Service]
+        Type=simple
+        ExecStart={}
+        Restart=on-failure
+        RestartSec=10
+        Environment=RUST_LOG=info
 
-[Install]
-WantedBy=graphical-session.target
-"#,
+        [Install]
+        WantedBy=graphical-session.target
+        "#,
         exe_path.display()
     );
 
@@ -99,22 +98,21 @@ fn try_setup_xdg_autostart() -> Result<(), Box<dyn std::error::Error>> {
     let autostart_dir = get_autostart_config_dir().ok_or("No autostart dir")?;
     fs::create_dir_all(&autostart_dir)?;
 
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("Failed to get exe path: {}", e))?;
+    let exe_path = std::env::current_exe().map_err(|e| format!("Failed to get exe path: {}", e))?;
 
     let desktop_content = format!(
         r#"[Desktop Entry]
-Type=Application
-Name=Screen Time Tracker
-Comment=Privacy-first screen time monitoring daemon
-Exec={}
-Icon=screen-time-tracker
-Terminal=false
-Hidden=false
-NoDisplay=true
-X-GNOME-Autostart-enabled=true
-Categories=Utility;Monitor;
-"#,
+            Type=Application
+            Name=Screen Time Tracker
+            Comment=Privacy-first screen time monitoring daemon
+            Exec={}
+            Icon=screen-time-tracker
+            Terminal=false
+            Hidden=false
+            NoDisplay=true
+            X-GNOME-Autostart-enabled=true
+            Categories=Utility;Monitor;
+        "#,
         exe_path.display()
     );
 

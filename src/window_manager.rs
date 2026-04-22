@@ -23,9 +23,7 @@ pub enum DisplayServer {
 
 impl DisplayServer {
     pub fn detect() -> Self {
-        if std::env::var("WAYLAND_DISPLAY").is_ok()
-            || std::env::var("WAYLAND_SOCKET").is_ok()
-        {
+        if std::env::var("WAYLAND_DISPLAY").is_ok() || std::env::var("WAYLAND_SOCKET").is_ok() {
             if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
                 return DisplayServer::Hyprland;
             }
@@ -228,10 +226,7 @@ impl WindowManager for GenericWaylandManager {
 }
 
 fn get_active_window_wmctrl() -> Option<WindowInfo> {
-    let output = Command::new("wmctrl")
-        .args(["-a", "-p"])
-        .output()
-        .ok()?;
+    let output = Command::new("wmctrl").args(["-a", "-p"]).output().ok()?;
 
     if !output.status.success() || output.stdout.is_empty() {
         return None;
@@ -414,12 +409,8 @@ pub fn create_manager() -> Option<Box<dyn WindowManager>> {
         DisplayServer::Hyprland => {
             HyprlandManager::new().map(|m| Box::new(m) as Box<dyn WindowManager>)
         }
-        DisplayServer::Sway => {
-            SwayManager::new().map(|m| Box::new(m) as Box<dyn WindowManager>)
-        }
-        DisplayServer::X11 => {
-            X11Manager::new().map(|m| Box::new(m) as Box<dyn WindowManager>)
-        }
+        DisplayServer::Sway => SwayManager::new().map(|m| Box::new(m) as Box<dyn WindowManager>),
+        DisplayServer::X11 => X11Manager::new().map(|m| Box::new(m) as Box<dyn WindowManager>),
         DisplayServer::Gnome | DisplayServer::KDE | DisplayServer::Wlroots => {
             if let Some(m) = HyprlandManager::new() {
                 return Some(Box::new(m) as Box<dyn WindowManager>);

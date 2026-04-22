@@ -1,4 +1,4 @@
-use actix_web::{web, App, HttpServer, HttpResponse};
+use actix_web::{web, App, HttpResponse, HttpServer};
 use log::info;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -46,10 +46,7 @@ async fn weekly_usage(state: web::Data<AppState>) -> HttpResponse {
     HttpResponse::Ok().json(ApiResponse::success(data))
 }
 
-async fn app_breakdown(
-    state: web::Data<AppState>,
-    query: web::Query<DateQuery>,
-) -> HttpResponse {
+async fn app_breakdown(state: web::Data<AppState>, query: web::Query<DateQuery>) -> HttpResponse {
     let data = state.storage.get_app_breakdown(query.date.as_deref());
     HttpResponse::Ok().json(ApiResponse::success(data))
 }
@@ -59,22 +56,18 @@ async fn session_history(
     query: web::Query<HistoryQuery>,
 ) -> HttpResponse {
     let limit = query.limit.unwrap_or(100);
-    let data = state.storage.get_session_history(query.date.as_deref(), limit);
+    let data = state
+        .storage
+        .get_session_history(query.date.as_deref(), limit);
     HttpResponse::Ok().json(ApiResponse::success(data))
 }
 
-async fn website_usage(
-    state: web::Data<AppState>,
-    query: web::Query<DateQuery>,
-) -> HttpResponse {
+async fn website_usage(state: web::Data<AppState>, query: web::Query<DateQuery>) -> HttpResponse {
     let data = state.storage.get_website_usage(query.date.as_deref());
     HttpResponse::Ok().json(ApiResponse::success(data))
 }
 
-async fn focus_score(
-    state: web::Data<AppState>,
-    query: web::Query<DateQuery>,
-) -> HttpResponse {
+async fn focus_score(state: web::Data<AppState>, query: web::Query<DateQuery>) -> HttpResponse {
     let data = state.storage.get_focus_score(query.date.as_deref());
     HttpResponse::Ok().json(ApiResponse::success(data))
 }
@@ -96,11 +89,7 @@ async fn browser_event(
     state: web::Data<AppState>,
     body: web::Json<BrowserTabEvent>,
 ) -> HttpResponse {
-    let session = BrowserSession::new(
-        body.url.clone(),
-        body.title.clone(),
-        body.domain.clone(),
-    );
+    let session = BrowserSession::new(body.url.clone(), body.title.clone(), body.domain.clone());
     state.storage.insert_browser_session(&session);
     HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
 }

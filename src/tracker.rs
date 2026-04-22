@@ -128,9 +128,9 @@ impl Tracker {
             );
 
             if status == 0 && nitems > 0 && !prop.is_null() {
-                let title = String::from_utf8_lossy(
-                    std::slice::from_raw_parts(prop, nitems as usize)
-                ).to_string();
+                let title =
+                    String::from_utf8_lossy(std::slice::from_raw_parts(prop, nitems as usize))
+                        .to_string();
                 x11::xlib::XFree(prop as *mut _);
                 return title;
             }
@@ -163,7 +163,9 @@ impl Tracker {
 
             if x11::xlib::XGetClassHint(self.display, window, &mut class_hint) != 0 {
                 let instance = if !class_hint.res_name.is_null() {
-                    let s = CStr::from_ptr(class_hint.res_name).to_string_lossy().to_string();
+                    let s = CStr::from_ptr(class_hint.res_name)
+                        .to_string_lossy()
+                        .to_string();
                     x11::xlib::XFree(class_hint.res_name as *mut _);
                     s
                 } else {
@@ -171,7 +173,9 @@ impl Tracker {
                 };
 
                 let class = if !class_hint.res_class.is_null() {
-                    let s = CStr::from_ptr(class_hint.res_class).to_string_lossy().to_string();
+                    let s = CStr::from_ptr(class_hint.res_class)
+                        .to_string_lossy()
+                        .to_string();
                     x11::xlib::XFree(class_hint.res_class as *mut _);
                     s
                 } else {
@@ -191,11 +195,8 @@ impl Tracker {
             // Check if XScreenSaver extension is available
             let mut event_base: c_int = 0;
             let mut error_base: c_int = 0;
-            if x11::xss::XScreenSaverQueryExtension(
-                self.display,
-                &mut event_base,
-                &mut error_base,
-            ) == 0
+            if x11::xss::XScreenSaverQueryExtension(self.display, &mut event_base, &mut error_base)
+                == 0
             {
                 return 0;
             }

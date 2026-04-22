@@ -23,6 +23,7 @@ pub struct TuiData {
     pub app_count: usize,
     pub weekly: Vec<DayData>,
     pub apps: Vec<AppData>,
+    pub app_trend: Vec<u64>,
     pub live_app: Option<String>,
     pub live_seconds: i64,
     conn: Connection,
@@ -39,6 +40,7 @@ impl TuiData {
             app_count: 0,
             weekly: Vec::new(),
             apps: Vec::new(),
+            app_trend: Vec::new(),
             live_app: None,
             live_seconds: 0,
             conn,
@@ -64,34 +66,6 @@ impl TuiData {
             .unwrap_or(0);
 
         self.today_total = format_time(total);
-
-        let apps: Vec<AppData> = match self.conn.prepare(
-            "SELECT app_name, SUM(duration_secs) as total
-             FROM sessions
-             WHERE date = ?1 AND is_idle = 0
-             GROUP BY app_name
-             ORDER BY total DESC
-             LIMIT 10",
-        ) {
-            Ok(mut stmt) => stmt
-                .query_map(params![&today], |row| {
-                    let name: String = row.get(0)?;
-                    let secs: i64 = row.get(1)?;
-                    let category = self.get_category(&name);
-                    Ok(AppData {
-                        name,
-                        seconds: secs,
-                        category,
-                    })
-                })
-                .map(|rows| rows.filter_map(|r| r.ok()).collect())
-                .unwrap_or_default(),
-            Err(_) => Vec::new(),
-        };
-
-        self.app_count = apps.len();
-        self.apps = apps;
-
         self.refresh_weekly();
     }
 
@@ -155,6 +129,74 @@ impl TuiData {
             )
             .unwrap_or_else(|_| "neutral".to_string())
     }
+
+    pub fn load_day(&mut self, day_index: usize) {
+        let date = self
+            .weekly
+            .get(day_index)
+            .map(|day| day.date.clone())
+            .unwrap_or_else(|| self.today_date.clone());
+
+        self.apps = self.load_apps_for_date(&date);
+        self.app_count = self.apps.len();
+    }
+
+    pub fn refresh_app_trend(&mut self, app_name: Option<&str>) {
+        self.app_trend = self
+            .weekly
+            .iter()
+            .map(|day| match app_name {
+                Some(name) => self.app_seconds_for_date(&day.date, name) as u64,
+                None => day.seconds.max(0) as u64,
+            })
+            .collect();
+    }
+
+    pub fn weekly_average_seconds(&self) -> i64 {
+        if self.weekly.is_empty() {
+            0
+        } else {
+            self.weekly.iter().map(|day| day.seconds).sum::<i64>() / self.weekly.len() as i64
+        }
+    }
+
+    fn load_apps_for_date(&self, date: &str) -> Vec<AppData> {
+        match self.conn.prepare(
+            "SELECT app_name, SUM(duration_secs) as total
+             FROM sessions
+             WHERE date = ?1 AND is_idle = 0
+             GROUP BY app_name
+             ORDER BY total DESC
+             LIMIT 12",
+        ) {
+            Ok(mut stmt) => stmt
+                .query_map(params![date], |row| {
+                    let name: String = row.get(0)?;
+                    let secs: i64 = row.get(1)?;
+                    let category = self.get_category(&name);
+                    Ok(AppData {
+                        name,
+                        seconds: secs,
+                        category,
+                    })
+                })
+                .map(|rows| rows.filter_map(|row| row.ok()).collect())
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    fn app_seconds_for_date(&self, date: &str, app_name: &str) -> i64 {
+        self.conn
+            .query_row(
+                "SELECT COALESCE(SUM(duration_secs), 0)
+                 FROM sessions
+                 WHERE date = ?1 AND app_name = ?2 AND is_idle = 0",
+                params![date, app_name],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+    }
 }
 
 fn format_time(secs: i64) -> String {
@@ -166,4 +208,3 @@ fn format_time(secs: i64) -> String {
         format!("{}m", m)
     }
 }
-
