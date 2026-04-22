@@ -32,74 +32,36 @@ A privacy-first screen time tracking application for Linux with a polished termi
 
 ## Installation
 
-### From Source
-
 ```bash
-# Clone the repository
 git clone https://github.com/anomalyco/mono.git
 cd mono
-
-# Build the application
-cargo build --release
-
-# Install binaries
-sudo cp target/release/mono /usr/local/bin/
-sudo cp target/release/mono-daemon /usr/local/bin/
-
-# Run the application
-mono
+./install.sh
 ```
 
-### Quick Start
+The install script builds the release binary, installs it to `~/.local/bin/mono-tracker`, and sets up autostart via systemd (with XDG autostart as fallback).
+
+### Manual Installation
 
 ```bash
-# Build in debug mode for testing
-cargo build
+cargo build --release
+./install.sh
+```
 
-# Run the TUI dashboard
-cargo run --bin mono
+### Uninstall
 
-# Run CLI commands
-cargo run --bin mono-cli -- status
+```bash
+./uninstall.sh
 ```
 
 ---
 
-## CLI Commands
+## Binaries
 
-For development purposes, use the `mono-cli` binary to manage tracking:
-
-```bash
-# Check tracking status
-mono-cli status
-
-# Enable tracking and autostart
-mono-cli setup
-
-# Disable tracking and remove autostart
-mono-cli unsetup
-```
-
-### Available Commands
-
-| Command | Description |
-|---------|-------------|
-| `mono-cli status` | Show current consent and daemon status |
-| `mono-cli setup` | Enable tracking and register autostart |
-| `mono-cli unsetup` | Disable tracking and remove autostart |
-
-### Manual Daemon Control
-
-```bash
-# Start daemon manually
-mono-daemon
-
-# Stop daemon
-pkill mono-daemon
-
-# Check if daemon is running
-pgrep mono-daemon
-```
+| Binary | Purpose |
+|--------|---------|
+| `mono` | TUI Dashboard |
+| `mono-tracker` | Background tracking daemon |
+| `mono-cli` | CLI management tool |
 
 ---
 
@@ -109,8 +71,8 @@ pgrep mono-daemon
 
 | Key | Action |
 |-----|--------|
-| `j` / `Down` | Scroll down (applications list) |
-| `k` / `Up` | Scroll up (applications list) |
+| `j` / `Down` | Scroll down |
+| `k` / `Up` | Scroll up |
 | `h` / `Left` | Previous day |
 | `l` / `Right` | Next day |
 | `g` | Go to today |
@@ -121,45 +83,50 @@ pgrep mono-daemon
 ### First Run
 
 On first launch, Mono displays a consent prompt:
+- **Enable Tracking**: Starts the daemon and enables autostart
+- **Skip for Now**: Opens dashboard without tracking
 
-- **Enable Tracking**: Starts the background daemon and enables autostart
-- **Skip for Now**: Opens the dashboard without tracking
+---
 
-The daemon automatically:
-- Registers with XDG autostart (`~/.config/autostart/`)
-- Creates a systemd service (optional)
+## CLI Commands
+
+```bash
+mono-cli status    # Check tracking status
+mono-cli setup     # Enable tracking and autostart
+mono-cli unsetup   # Disable tracking and remove autostart
+```
+
+### Daemon Control
+
+```bash
+mono-tracker        # Start daemon manually
+pkill mono-tracker  # Stop daemon
+pgrep mono-tracker # Check if running
+```
 
 ---
 
 ## Architecture
 
-### Binaries
-
-| Binary | Purpose |
-|--------|---------|
-| `mono` | TUI Dashboard (terminal interface) |
-| `mono-daemon` | Background tracking daemon |
-
-### Components
-
 ```
 src/
-├── main.rs          # Daemon entry point
-├── lib.rs           # Core library
-├── tracker.rs       # Active window tracking
-├── session_manager.rs  # Session management
-├── storage.rs       # SQLite database
+├── main.rs            # Daemon entry point
+├── lib.rs             # Core library
+├── tracker.rs         # Active window tracking
+├── session_manager.rs # Session management
+├── storage.rs        # SQLite database
 ├── autostart.rs     # Autostart registration
 ├── window_manager.rs # Window manager integration
-├── tui/
-│   ├── main.rs     # TUI dashboard
-│   ├── db.rs      # Database queries
-│   └── consent.rs # Consent handling
+├── ipc_server.rs    # IPC server
+└── tui/
+    ├── main.rs     # TUI dashboard
+    ├── db.rs      # Database queries
+    └── consent.rs # Consent handling
 ```
 
 ### Data Storage
 
-- **Database**: `~/.local/share/mono/mono.db` (SQLite)
+- **Database**: `~/.local/share/mono/mono.db`
 - **Config**: `~/.config/mono/`
 - **Consent**: `~/.config/mono/consent`
 
@@ -167,37 +134,22 @@ src/
 
 ## Development
 
-### Building
+```bash
+cargo build           # Debug build
+cargo build --release # Release build
+cargo test            # Run tests
+cargo run --bin mono  # Run TUI
+```
+
+### Tests
 
 ```bash
-# Build debug version
-cargo build
-
-# Build release version
-cargo build --release
-
-# Run TUI
-cargo run --bin mono
-
-# Run daemon
-cargo run --bin mono-daemon
+cargo test           # All tests
 ```
 
-### Project Structure
+---
 
-```
-mono/
-├── Cargo.toml      # Rust package definition
-├── src/            # Source code
-│   ├── tui/       # Terminal UI
-��   ├── *.rs        # Core components
-├── public/        # Static assets
-│   └── ss.png     # Screenshot
-├── AGENTS.md       # Development guidelines
-└── README.md      # This file
-```
-
-### Key Dependencies
+## Key Dependencies
 
 - **ratatui**: Terminal UI framework
 - **rusqlite**: SQLite bindings
@@ -207,63 +159,21 @@ mono/
 
 ---
 
-## Configuration
-
-### Manual Autostart
-
-To enable autostart manually:
-
-```bash
-# Create autostart directory
-mkdir -p ~/.config/autostart
-
-# Create desktop entry
-cat > ~/.config/autostart/mono.desktop << EOF
-[Desktop Entry]
-Type=Application
-Name=Mono
-Exec=mono-daemon
-EOF
-```
-
-### Database Location
-
-```bash
-# View database
-sqlite3 ~/.local/share/mono/mono.db
-
-# Check schema
-sqlite3 ~/.local/share/mono/mono.db ".schema"
-```
-
----
-
-
-
 ## Troubleshooting
 
-### No Display
-
-If running in a non-interactive terminal:
+### Daemon Not Running
 
 ```bash
-# Check if running in TTY
-tty
-
-# Redirect output to file
-mono > output.log 2>&1
+mono-cli setup
 ```
 
-### Permission Denied
+### View Database
 
 ```bash
-# Fix database permissions
-chmod 755 ~/.local/share/mono
-chmod 644 ~/.local/share/mono/mono.db
+sqlite3 ~/.local/share/mono/mono.db
+sqlite3 ~/.local/share/mono/mono.db ".schema"
 ```
 
 ### Hyprland Not Detected
 
-The daemon will fallback to basic tracking if Hyprland is not detected. Window titles require Hyprland.
-
-
+The daemon falls back to basic tracking without window titles.
