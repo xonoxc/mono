@@ -200,11 +200,6 @@ sqlite3 ~/.local/share/mono/mono.db ".schema"
 
 ---
 
-## License
-
-MIT License - see project for details.
-
----
 
 
 ## Troubleshooting
