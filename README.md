@@ -206,13 +206,6 @@ MIT License - see project for details.
 
 ---
 
-## Screenshots
-
-<p align="center">
-  <img src="public/ss.png" alt="Mono Dashboard" width="800"/>
-</p>
-
----
 
 ## Troubleshooting
 
