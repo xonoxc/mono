@@ -1,7 +1,7 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, FixedOffset, Local, NaiveDate, TimeZone};
 use log::{error, info, warn};
 use parking_lot::Mutex;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -36,7 +36,7 @@ impl Storage {
         };
 
         storage.run_migrations();
-        storage.recover_incomplete_sessions();
+        sanitize_session_records(&storage.conn.lock());
 
         storage
     }
@@ -150,39 +150,11 @@ impl Storage {
         }
     }
 
-    /// Recover sessions that were not properly closed (crash recovery)
-    fn recover_incomplete_sessions(&self) {
-        let conn = self.conn.lock();
-        let now = Local::now().to_rfc3339();
-
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sessions WHERE end_time IS NULL",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        if count > 0 {
-            warn!(
-                "Recovering {} incomplete sessions from previous crash",
-                count
-            );
-            conn.execute(
-                "UPDATE sessions SET
-                    end_time = ?1,
-                    duration_secs = CAST((julianday(?1) - julianday(start_time)) * 86400 AS INTEGER)
-                WHERE end_time IS NULL",
-                params![now],
-            )
-            .ok();
-        }
-    }
-
     // ─── Session CRUD ────────────────────────────────────────────
 
     pub fn insert_session(&self, session: &Session) {
         let conn = self.conn.lock();
+        close_open_sessions_before(&conn, &session.start_time);
         conn.execute(
             "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, is_idle, date)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -519,6 +491,94 @@ impl Storage {
         .filter_map(|r| r.ok())
         .collect()
     }
+}
+
+pub fn sanitize_session_records(conn: &Connection) {
+    let rows = match conn.prepare(
+        "SELECT id, start_time, end_time, date
+         FROM sessions
+         WHERE end_time IS NULL
+            OR duration_secs < 0
+            OR duration_secs > 86400
+            OR substr(start_time, 1, 10) != date
+            OR (end_time IS NOT NULL AND substr(end_time, 1, 10) != date)",
+    ) {
+        Ok(mut stmt) => stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map(|rows| rows.filter_map(Result::ok).collect::<Vec<_>>())
+            .unwrap_or_default(),
+        Err(err) => {
+            warn!("Failed to scan sessions for repair: {}", err);
+            return;
+        }
+    };
+
+    if rows.is_empty() {
+        return;
+    }
+
+    let now = Local::now().fixed_offset();
+    warn!("Repairing {} suspicious session rows", rows.len());
+
+    for (id, start_text, end_text, date_text) in rows {
+        let Some(start_time) = parse_rfc3339(&start_text) else {
+            continue;
+        };
+        let Some(day_end) = end_of_day(&date_text, start_time.offset()) else {
+            continue;
+        };
+
+        let candidate_end = end_text.as_deref().and_then(parse_rfc3339).unwrap_or(now);
+        let repaired_end = candidate_end.min(day_end).max(start_time);
+        let duration_secs = (repaired_end - start_time).num_seconds().max(0);
+
+        if let Err(err) = conn.execute(
+            "UPDATE sessions
+             SET end_time = ?1, duration_secs = ?2
+             WHERE id = ?3",
+            params![repaired_end.to_rfc3339(), duration_secs, id],
+        ) {
+            warn!("Failed to repair session {}: {}", id, err);
+        }
+    }
+}
+
+fn close_open_sessions_before(conn: &Connection, next_start: &DateTime<Local>) {
+    let next_start = next_start.to_rfc3339();
+    if let Err(err) = conn.execute(
+        "UPDATE sessions
+         SET end_time = ?1,
+             duration_secs = MAX(
+                 0,
+                 CAST((julianday(?1) - julianday(start_time)) * 86400 AS INTEGER)
+             )
+         WHERE end_time IS NULL",
+        params![next_start],
+    ) {
+        warn!("Failed to close open sessions before insert: {}", err);
+    }
+
+    sanitize_session_records(conn);
+}
+
+fn parse_rfc3339(value: &str) -> Option<DateTime<FixedOffset>> {
+    DateTime::parse_from_rfc3339(value).ok()
+}
+
+fn end_of_day(date_text: &str, offset: &FixedOffset) -> Option<DateTime<FixedOffset>> {
+    let day = NaiveDate::parse_from_str(date_text, "%Y-%m-%d").ok()?;
+    let naive = day.and_hms_opt(23, 59, 59)?;
+    offset
+        .from_local_datetime(&naive)
+        .single()
+        .or_else(|| Some(offset.from_utc_datetime(&naive)))
 }
 
 // Allow Storage to be shared across threads via Arc

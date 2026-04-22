@@ -1,6 +1,6 @@
 use log::{info, warn};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -19,6 +19,11 @@ fn main() {
 
     info!("Screen Time Tracker v0.2.0 starting...");
 
+    if std::net::TcpListener::bind("127.0.0.1:9746").is_err() {
+        warn!("Mono tracker is already running; exiting duplicate instance");
+        return;
+    }
+
     let storage = Arc::new(Storage::new());
     info!("Database initialized");
 
@@ -26,7 +31,9 @@ fn main() {
         Some(t) => t,
         None => {
             eprintln!("ERROR: Failed to initialize window manager.");
-            eprintln!("Please ensure you're running X11 or a supported Wayland compositor (Hyprland, Sway, GNOME, KDE).");
+            eprintln!(
+                "Please ensure you're running X11 or a supported Wayland compositor (Hyprland, Sway, GNOME, KDE)."
+            );
             std::process::exit(1);
         }
     };

@@ -1,16 +1,16 @@
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Sparkline, SparklineBar},
-    Frame, Terminal,
 };
 use std::io;
 use std::time::Duration;
@@ -31,6 +31,14 @@ const ACTIVE: Color = Color::Rgb(163, 190, 140);
 const WEEKLY_AXIS_MAX_HOURS: i64 = 10;
 const WEEKLY_AXIS_MAX_SECONDS: i64 = WEEKLY_AXIS_MAX_HOURS * 3600;
 const STATS_PANEL_HEIGHT: u16 = 5;
+const APP_PALETTE: [Color; 6] = [
+    Color::Rgb(163, 190, 140),
+    Color::Rgb(136, 192, 208),
+    Color::Rgb(180, 142, 173),
+    Color::Rgb(208, 135, 112),
+    Color::Rgb(143, 188, 187),
+    Color::Rgb(191, 97, 106),
+];
 
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
@@ -804,24 +812,23 @@ fn render_app_row(
     }
 
     let parts = app_row_parts(area);
+    let app_color = app_row_color(name);
     let name_style = if selected {
         Style::default().fg(TEXT).add_modifier(Modifier::BOLD)
     } else if is_top_app {
-        Style::default().fg(TEXT)
+        Style::default().fg(app_color).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED)
+        Style::default().fg(app_color)
     };
-    let bar_color = if selected || is_top_app {
-        ACCENT
-    } else {
-        MUTED
-    };
+    let bar_color = if selected { ACCENT } else { app_color };
     let bar_style = Style::default().fg(bar_color);
     let bar_bg_style = Style::default().fg(SURFACE);
-    let value_style = if selected || is_top_app {
+    let value_style = if selected {
         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+    } else if is_top_app {
+        Style::default().fg(app_color).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED)
+        Style::default().fg(app_color)
     };
 
     let name = truncate_text(name, parts[0].width as usize);
@@ -859,6 +866,13 @@ fn render_app_row(
     buf.set_stringn(x, area.y, value, parts[2].width as usize, value_style);
 }
 
+fn app_row_color(name: &str) -> Color {
+    let hash = name.bytes().fold(0_u64, |acc, byte| {
+        acc.wrapping_mul(31).wrapping_add(byte as u64)
+    });
+    APP_PALETTE[(hash as usize) % APP_PALETTE.len()]
+}
+
 fn stats_line(label: &str, value: String) -> Line<'static> {
     Line::from(vec![
         Span::styled(format!("{label:<11}"), Style::default().fg(MUTED)),
@@ -874,13 +888,28 @@ fn draw_weekly_plot(
     slots: &[(u16, u16)],
     selected_day: usize,
 ) {
-    if plot_area.width == 0 || plot_area.height == 0 {
+    if plot_area.width == 0 || plot_area.height <= 1 {
         return;
     }
 
+    let body_area = Rect::new(
+        plot_area.x,
+        plot_area.y,
+        plot_area.width,
+        plot_area.height.saturating_sub(1),
+    );
+    if body_area.height == 0 {
+        return;
+    }
+    let axis_y = plot_area.bottom().saturating_sub(1);
+
     for tick_hour in (0..=WEEKLY_AXIS_MAX_HOURS).step_by(2) {
         let tick_seconds = tick_hour * 3600;
-        let y = value_row(tick_seconds, WEEKLY_AXIS_MAX_SECONDS, plot_area);
+        let y = if tick_hour == 0 {
+            axis_y
+        } else {
+            value_row(tick_seconds, WEEKLY_AXIS_MAX_SECONDS, body_area)
+        };
         let label = format!("{tick_hour}h");
         let label_x = y_axis_area.right().saturating_sub(label.len() as u16);
         buf.set_string(label_x, y, label, Style::default().fg(MUTED));
@@ -897,7 +926,7 @@ fn draw_weekly_plot(
         let Some((start_x, width)) = slots.get(index).copied() else {
             continue;
         };
-        let filled_rows = value_height(day.seconds, WEEKLY_AXIS_MAX_SECONDS, plot_area.height);
+        let filled_rows = value_height(day.seconds, WEEKLY_AXIS_MAX_SECONDS, body_area.height);
         if filled_rows == 0 {
             continue;
         }
@@ -909,8 +938,8 @@ fn draw_weekly_plot(
         } else {
             MUTED
         });
-        let top = plot_area.bottom().saturating_sub(filled_rows);
-        for y in top..plot_area.bottom() {
+        let top = body_area.bottom().saturating_sub(filled_rows);
+        for y in top..body_area.bottom() {
             for x in start_x..start_x.saturating_add(width) {
                 if x < plot_area.right() {
                     buf[(x, y)].set_symbol("█").set_style(style);
@@ -1032,14 +1061,28 @@ fn calculate_bar_slots(area: Rect, count: usize) -> Vec<(u16, u16)> {
     }
 
     let count = count as u16;
-    let gap: u16 = if area.width >= count.saturating_mul(5) {
-        2
-    } else {
-        1
+    let preferred_gap = match count {
+        0 | 1 => 0,
+        2 | 3 => 4,
+        4 | 5 => 3,
+        _ => 2,
     };
+    let max_bar_width = match count {
+        0 => 1,
+        1 => 14,
+        2 | 3 => 10,
+        4 | 5 => 8,
+        _ => 6,
+    };
+
+    let mut gap: u16 = preferred_gap;
+    while gap > 0 && area.width < count + gap.saturating_mul(count.saturating_sub(1)) {
+        gap -= 1;
+    }
+
     let total_gap = gap.saturating_mul(count.saturating_sub(1));
     let available = area.width.saturating_sub(total_gap);
-    let bar_width = (available / count).max(1);
+    let bar_width = (available / count).max(1).min(max_bar_width);
     let used = bar_width.saturating_mul(count) + total_gap;
     let mut x = area.x + area.width.saturating_sub(used) / 2;
     let mut slots = Vec::with_capacity(count as usize);
@@ -1147,7 +1190,7 @@ fn format_duration(secs: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
 
     #[test]
     fn dashboard_renders_wide_terminal_without_panicking() {
