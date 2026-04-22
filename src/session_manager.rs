@@ -142,7 +142,7 @@ impl SessionManager {
     }
 
     fn open_session(&mut self, window: WindowInfo) {
-        let session = Session::new(
+        let _session = Session::new(
             window.class_name.clone(), // Use WM_CLASS class name for consistency
             window.window_title.clone(),
         );

@@ -87,7 +87,7 @@ X-GNOME-Autostart-enabled=true
         daemon_path.display()
     );
 
-    if let Some(user) = std::env::var_os("USER") {
+    if let Some(_user) = std::env::var_os("USER") {
         let _ = fs::create_dir_all(&systemd_dir);
         let _ = fs::create_dir_all(&autostart_dir);
 
