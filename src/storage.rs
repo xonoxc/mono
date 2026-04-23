@@ -1,7 +1,7 @@
 use chrono::{DateTime, FixedOffset, Local, NaiveDate, TimeZone};
 use log::{error, info, warn};
 use parking_lot::Mutex;
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -184,6 +184,15 @@ impl Storage {
             error!("Failed to close session {}: {}", session_id, e);
             0
         });
+    }
+
+    pub fn delete_session(&self, session_id: &str) {
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])
+            .unwrap_or_else(|e| {
+                error!("Failed to delete session {}: {}", session_id, e);
+                0
+            });
     }
 
     // ─── Browser Sessions ────────────────────────────────────────
@@ -520,34 +529,34 @@ pub fn sanitize_session_records(conn: &Connection) {
         }
     };
 
-    if rows.is_empty() {
-        return;
-    }
+    if !rows.is_empty() {
+        let now = Local::now().fixed_offset();
+        warn!("Repairing {} suspicious session rows", rows.len());
 
-    let now = Local::now().fixed_offset();
-    warn!("Repairing {} suspicious session rows", rows.len());
+        for (id, start_text, end_text, date_text) in rows {
+            let Some(start_time) = parse_rfc3339(&start_text) else {
+                continue;
+            };
+            let Some(day_end) = end_of_day(&date_text, start_time.offset()) else {
+                continue;
+            };
 
-    for (id, start_text, end_text, date_text) in rows {
-        let Some(start_time) = parse_rfc3339(&start_text) else {
-            continue;
-        };
-        let Some(day_end) = end_of_day(&date_text, start_time.offset()) else {
-            continue;
-        };
+            let candidate_end = end_text.as_deref().and_then(parse_rfc3339).unwrap_or(now);
+            let repaired_end = candidate_end.min(day_end).max(start_time);
+            let duration_secs = (repaired_end - start_time).num_seconds().max(0);
 
-        let candidate_end = end_text.as_deref().and_then(parse_rfc3339).unwrap_or(now);
-        let repaired_end = candidate_end.min(day_end).max(start_time);
-        let duration_secs = (repaired_end - start_time).num_seconds().max(0);
-
-        if let Err(err) = conn.execute(
-            "UPDATE sessions
-             SET end_time = ?1, duration_secs = ?2
-             WHERE id = ?3",
-            params![repaired_end.to_rfc3339(), duration_secs, id],
-        ) {
-            warn!("Failed to repair session {}: {}", id, err);
+            if let Err(err) = conn.execute(
+                "UPDATE sessions
+                 SET end_time = ?1, duration_secs = ?2
+                 WHERE id = ?3",
+                params![repaired_end.to_rfc3339(), duration_secs, id],
+            ) {
+                warn!("Failed to repair session {}: {}", id, err);
+            }
         }
     }
+
+    normalize_session_timeline(conn);
 }
 
 fn close_open_sessions_before(conn: &Connection, next_start: &DateTime<Local>) {
@@ -568,8 +577,127 @@ fn close_open_sessions_before(conn: &Connection, next_start: &DateTime<Local>) {
     sanitize_session_records(conn);
 }
 
+fn normalize_session_timeline(conn: &Connection) {
+    let rows = match conn.prepare(
+        "SELECT id, start_time, end_time
+         FROM sessions
+         ORDER BY start_time ASC, COALESCE(end_time, start_time) ASC, id ASC",
+    ) {
+        Ok(mut stmt) => stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map(|rows| rows.filter_map(Result::ok).collect::<Vec<_>>())
+            .unwrap_or_default(),
+        Err(err) => {
+            warn!("Failed to scan sessions for overlap repair: {}", err);
+            return;
+        }
+    };
+
+    if rows.len() < 2 {
+        return;
+    }
+
+    let mut repairs = Vec::new();
+
+    for window in rows.windows(2) {
+        let (id, start_text, end_text) = &window[0];
+        let (_, next_start_text, _) = &window[1];
+
+        let Some(start_time) = parse_rfc3339(start_text) else {
+            continue;
+        };
+        let Some(end_time) = end_text.as_deref().and_then(parse_rfc3339) else {
+            continue;
+        };
+        let Some(next_start) = parse_rfc3339(next_start_text) else {
+            continue;
+        };
+
+        if end_time <= next_start {
+            continue;
+        }
+
+        let repaired_end = next_start.max(start_time);
+        let duration_secs = (repaired_end - start_time).num_seconds().max(0);
+        repairs.push((id.clone(), repaired_end.to_rfc3339(), duration_secs));
+    }
+
+    if repairs.is_empty() {
+        return;
+    }
+
+    warn!("Repairing {} overlapping session rows", repairs.len());
+
+    for (id, end_time, duration_secs) in repairs {
+        if let Err(err) = conn.execute(
+            "UPDATE sessions
+             SET end_time = ?1, duration_secs = ?2
+             WHERE id = ?3",
+            params![end_time, duration_secs, id],
+        ) {
+            warn!("Failed to repair overlap for session {}: {}", id, err);
+        }
+    }
+}
+
 fn parse_rfc3339(value: &str) -> Option<DateTime<FixedOffset>> {
     DateTime::parse_from_rfc3339(value).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_session_timeline_trims_overlaps() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                app_name TEXT NOT NULL,
+                window_title TEXT NOT NULL DEFAULT '',
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                duration_secs INTEGER DEFAULT 0,
+                is_idle INTEGER DEFAULT 0,
+                date TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, is_idle, date)
+             VALUES ('a', 'kitty', '', '2026-04-23T10:00:00+05:30', '2026-04-23T10:30:00+05:30', 1800, 0, '2026-04-23')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, is_idle, date)
+             VALUES ('b', 'code', '', '2026-04-23T10:15:00+05:30', '2026-04-23T10:45:00+05:30', 1800, 0, '2026-04-23')",
+            [],
+        )
+        .unwrap();
+
+        normalize_session_timeline(&conn);
+
+        let repaired: (String, i64) = conn
+            .query_row(
+                "SELECT end_time, duration_secs FROM sessions WHERE id = 'a'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(repaired.0, "2026-04-23T10:15:00+05:30");
+        assert_eq!(repaired.1, 900);
+    }
 }
 
 fn end_of_day(date_text: &str, offset: &FixedOffset) -> Option<DateTime<FixedOffset>> {

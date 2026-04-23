@@ -177,6 +177,7 @@ impl SessionManager {
                     session.app_name, session.duration_secs
                 );
             } else {
+                self.storage.delete_session(&session.id);
                 debug!(
                     "Discarding short session: {} ({} secs)",
                     session.app_name, session.duration_secs

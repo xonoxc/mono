@@ -1,5 +1,5 @@
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, TimeZone, Timelike};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -381,29 +381,29 @@ fn sanitize_tui_session_records(conn: &Connection) {
         Err(_) => return,
     };
 
-    if rows.is_empty() {
-        return;
+    if !rows.is_empty() {
+        let now = Local::now().fixed_offset();
+        for (id, start_text, end_text, date_text) in rows {
+            let Some(start_time) = parse_rfc3339(&start_text) else {
+                continue;
+            };
+            let Some(day_end) = end_of_day(&date_text, start_time.offset()) else {
+                continue;
+            };
+            let candidate_end = end_text.as_deref().and_then(parse_rfc3339).unwrap_or(now);
+            let repaired_end = candidate_end.min(day_end).max(start_time);
+            let duration_secs = (repaired_end - start_time).num_seconds().max(0);
+
+            let _ = conn.execute(
+                "UPDATE sessions
+                 SET end_time = ?1, duration_secs = ?2
+                 WHERE id = ?3",
+                params![repaired_end.to_rfc3339(), duration_secs, id],
+            );
+        }
     }
 
-    let now = Local::now().fixed_offset();
-    for (id, start_text, end_text, date_text) in rows {
-        let Some(start_time) = parse_rfc3339(&start_text) else {
-            continue;
-        };
-        let Some(day_end) = end_of_day(&date_text, start_time.offset()) else {
-            continue;
-        };
-        let candidate_end = end_text.as_deref().and_then(parse_rfc3339).unwrap_or(now);
-        let repaired_end = candidate_end.min(day_end).max(start_time);
-        let duration_secs = (repaired_end - start_time).num_seconds().max(0);
-
-        let _ = conn.execute(
-            "UPDATE sessions
-             SET end_time = ?1, duration_secs = ?2
-             WHERE id = ?3",
-            params![repaired_end.to_rfc3339(), duration_secs, id],
-        );
-    }
+    normalize_session_timeline(conn);
 }
 
 fn end_of_day(date_text: &str, offset: &FixedOffset) -> Option<DateTime<FixedOffset>> {
@@ -433,6 +433,60 @@ fn merge_ranges(mut ranges: Vec<TimeRange>) -> Vec<TimeRange> {
         merged.push(range);
     }
     merged
+}
+
+fn normalize_session_timeline(conn: &Connection) {
+    let rows = match conn.prepare(
+        "SELECT id, start_time, end_time
+         FROM sessions
+         ORDER BY start_time ASC, COALESCE(end_time, start_time) ASC, id ASC",
+    ) {
+        Ok(mut stmt) => stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map(|rows| rows.filter_map(Result::ok).collect::<Vec<_>>())
+            .unwrap_or_default(),
+        Err(_) => return,
+    };
+
+    let mut repairs = Vec::new();
+
+    for window in rows.windows(2) {
+        let (id, start_text, end_text) = &window[0];
+        let (_, next_start_text, _) = &window[1];
+
+        let Some(start_time) = parse_rfc3339(start_text) else {
+            continue;
+        };
+        let Some(end_time) = end_text.as_deref().and_then(parse_rfc3339) else {
+            continue;
+        };
+        let Some(next_start) = parse_rfc3339(next_start_text) else {
+            continue;
+        };
+
+        if end_time <= next_start {
+            continue;
+        }
+
+        let repaired_end = next_start.max(start_time);
+        let duration_secs = (repaired_end - start_time).num_seconds().max(0);
+        repairs.push((id.clone(), repaired_end.to_rfc3339(), duration_secs));
+    }
+
+    for (id, end_time, duration_secs) in repairs {
+        let _ = conn.execute(
+            "UPDATE sessions
+             SET end_time = ?1, duration_secs = ?2
+             WHERE id = ?3",
+            params![end_time, duration_secs, id],
+        );
+    }
 }
 
 fn peak_hour_from_ranges(ranges: &[TimeRange]) -> Option<String> {
