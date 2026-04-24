@@ -120,6 +120,7 @@ pub fn is_daemon_running() -> bool {
     .is_ok()
 }
 
+#[allow(dead_code)]
 pub fn remove_autostart() -> std::io::Result<()> {
     let config_dir = get_config_dir();
     let systemd_dir = config_dir.join("systemd").join("user");

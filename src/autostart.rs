@@ -124,6 +124,7 @@ fn try_setup_xdg_autostart() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn remove_autostart() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(dir) = get_systemd_user_dir() {
         let service_path = dir.join(format!("{}.service", SERVICE_NAME));
