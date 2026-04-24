@@ -7,6 +7,32 @@ CONFIG_DIR="${HOME}/.config/mono"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
 AUTOSTART_DIR="${HOME}/.config/autostart"
 
+ENABLE_TRACKING=true
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --no-track)
+            ENABLE_TRACKING=false
+            shift
+            ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
+        *)
+            echo "Usage: $0 [--no-track] [--force]"
+            echo "  --no-track    Install binaries only, do not enable tracking"
+            echo "  --force     Overwrite existing installation"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -f "$INSTALL_DIR/mono" && "${FORCE:-false}" != "true" ]]; then
+    echo "Mono is already installed. Run with --force to reinstall."
+    exit 1
+fi
+
 echo "Installing Mono..."
 
 # Build release binary
@@ -15,7 +41,9 @@ cd "$SCRIPT_DIR"
 cargo build --release
 
 # Create directories
+echo "Creating directories..."
 mkdir -p "$INSTALL_DIR"
+mkdir -p "$CONFIG_DIR"
 mkdir -p "$SYSTEMD_DIR"
 mkdir -p "$AUTOSTART_DIR"
 
@@ -63,14 +91,31 @@ echo "Enabling systemd service..."
 systemctl --user daemon-reload
 systemctl --user enable mono.service
 
+# Setup tracking if enabled
+if [[ "$ENABLE_TRACKING" == "true" ]]; then
+    echo "Setting up tracking..."
+    echo "1" > "$CONFIG_DIR/consent"
+    systemctl --user start mono.service
+fi
+
 echo ""
 echo "Mono installed successfully!"
 echo ""
-echo "To start tracking now, run:"
-echo "  systemctl --user start mono.service"
-echo ""
-echo "To check status:"
-echo "  systemctl --user status mono.service"
-echo ""
-echo "To uninstall, run:"
-echo "  ./uninstall.sh"
+
+if [[ "$ENABLE_TRACKING" == "true" ]]; then
+    echo "Tracking is enabled and daemon is running."
+    echo ""
+    echo "To check status:"
+    echo "  systemctl --user status mono.service"
+    echo ""
+    echo "To disable tracking:"
+    echo "  ./uninstall.sh"
+else
+    echo "Binaries installed but tracking is NOT enabled."
+    echo ""
+    echo "To enable tracking later, run:"
+    echo "  mono-cli setup"
+    echo ""
+    echo "Or start the daemon manually:"
+    echo "  mono-tracker"
+fi

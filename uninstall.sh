@@ -27,6 +27,10 @@ rm -f "$SYSTEMD_DIR/mono.service"
 echo "Removing XDG autostart entry..."
 rm -f "$AUTOSTART_DIR/mono.desktop"
 
+# Remove config directory (includes consent file)
+echo "Removing config..."
+rm -rf "$CONFIG_DIR"
+
 # Reload systemd
 systemctl --user daemon-reload 2>/dev/null || true
 
@@ -35,4 +39,4 @@ echo "Mono uninstalled successfully!"
 echo ""
 echo "Note: Your data is preserved at ~/.local/share/mono/"
 echo "To remove all data including database:"
-echo "  rm -rf ~/.local/share/mono ~/.config/mono"
+echo "  rm -rf ~/.local/share/mono"
