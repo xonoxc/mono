@@ -1,8 +1,5 @@
 # Mono - Screen Time Tracker (Linux Only) 
 
-<p align="center">
-  <img src="public/ss.png" alt="Mono TUI Dashboard" width="800"/>
-</p>
 
 A privacy-first screen time tracking application for Linux with a polished terminal-based user interface (TUI). Mono runs silently in the background to track your application usage while providing a beautiful, htop-inspired dashboard for visualization.
 
