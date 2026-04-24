@@ -1,4 +1,4 @@
-# Mono - Screen Time Tracker for Linux
+# Mono - Screen Time Tracker (Linux Only) 
 
 <p align="center">
   <img src="public/ss.png" alt="Mono TUI Dashboard" width="800"/>
