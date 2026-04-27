@@ -186,6 +186,26 @@ impl Storage {
         });
     }
 
+    pub fn close_all_open_sessions(&self) {
+        let conn = self.conn.lock();
+        let now = Local::now();
+        let now_str = now.to_rfc3339();
+        let result = conn.execute(
+            "UPDATE sessions
+             SET end_time = ?1,
+                 duration_secs = MAX(0, CAST((julianday(?1) - julianday(start_time)) * 86400 AS INTEGER))
+             WHERE end_time IS NULL",
+            params![now_str],
+        );
+        if let Ok(count) = result {
+            if count > 0 {
+                info!("Closed {} orphan sessions on startup", count);
+            }
+        } else {
+            error!("Failed to close orphan sessions");
+        }
+    }
+
     pub fn delete_session(&self, session_id: &str) {
         let conn = self.conn.lock();
         conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])

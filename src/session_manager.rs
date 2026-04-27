@@ -1,3 +1,4 @@
+use chrono::Local;
 use log::{debug, info};
 use std::sync::Arc;
 
@@ -8,6 +9,10 @@ use crate::window_manager::{WindowInfo, WindowManager};
 /// Idle threshold in seconds — after this many seconds of no input,
 /// we consider the user idle and pause the active session.
 const IDLE_THRESHOLD_SECS: u64 = 120; // 2 minutes
+
+/// Maximum session duration in seconds before forcing a session close.
+/// Prevents extremely long sessions that may indicate issues.
+const MAX_SESSION_DURATION_SECS: u64 = 7200; // 2 hours
 
 /// Minimum session duration in seconds to persist.
 /// Prevents writing thousands of sub-second sessions during rapid alt-tab.
@@ -43,6 +48,7 @@ pub struct SessionManager {
 
 impl SessionManager {
     pub fn new(storage: Arc<Storage>, tracker: Box<dyn WindowManager>) -> Self {
+        storage.close_all_open_sessions();
         Self {
             storage,
             tracker,
@@ -62,6 +68,17 @@ impl SessionManager {
 
         let idle_secs = self.tracker.get_idle_seconds();
         let current_window = self.tracker.get_active_window();
+
+        // Check if current session exceeded max duration
+        if let Some(ref session) = self.current_session {
+            let elapsed = (Local::now() - session.start_time).num_seconds() as u64;
+            if elapsed >= MAX_SESSION_DURATION_SECS {
+                if let Some(ref window) = current_window {
+                    info!("Session exceeded max duration, forcing close");
+                    self.handle_event(SessionEvent::WindowChanged(window.clone()));
+                }
+            }
+        }
 
         // Determine the event
         let event = if idle_secs >= IDLE_THRESHOLD_SECS && !self.was_idle {

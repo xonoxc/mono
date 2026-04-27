@@ -91,6 +91,14 @@ echo "Enabling systemd service..."
 systemctl --user daemon-reload
 systemctl --user enable mono.service
 
+# Verify systemd service is enabled
+echo "Verifying systemd service..."
+if ! systemctl --user is-enabled mono.service &>/dev/null; then
+    echo "ERROR: Failed to enable systemd service"
+    exit 1
+fi
+echo "Systemd service verified"
+
 # Setup tracking if enabled
 if [[ "$ENABLE_TRACKING" == "true" ]]; then
     echo "Setting up tracking..."

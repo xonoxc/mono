@@ -64,9 +64,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     if !consent::has_consent() {
         return run_consent(terminal);
     }
-    if !consent::is_daemon_running() {
-        let _ = consent::start_daemon();
-    }
     run_dashboard(terminal)
 }
 
@@ -170,6 +167,12 @@ fn run_dashboard(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::R
             let area = f.area();
             if area.width < 72 || area.height < 18 {
                 render_too_small(f, area);
+                return;
+            }
+
+            if !state.daemon_running {
+                let has_data = state.data.weekly.iter().any(|day| day.seconds > 0);
+                render_daemon_not_running(f, area, has_data);
                 return;
             }
 
@@ -315,6 +318,7 @@ struct DashboardState {
     selected_day: usize,
     tick_count: usize,
     focused_section: usize,
+    daemon_running: bool,
 }
 
 impl DashboardState {
@@ -323,12 +327,14 @@ impl DashboardState {
         data.refresh();
         data.refresh_live();
         let selected_day = data.weekly.len().saturating_sub(1);
+        let daemon_running = consent::is_daemon_running();
         let mut state = Self {
             data,
             selected_app: 0,
             selected_day,
             tick_count: 0,
             focused_section: SECTION_APPS,
+            daemon_running,
         };
         state.sync_context();
         state
@@ -337,6 +343,7 @@ impl DashboardState {
     fn refresh_data(&mut self) {
         self.data.refresh();
         self.data.refresh_live();
+        self.daemon_running = consent::is_daemon_running();
         self.sync_context();
     }
 
@@ -421,6 +428,48 @@ fn render_too_small(f: &mut Frame, area: Rect) {
                 .border_style(Style::default().fg(MUTED)),
         );
     f.render_widget(message, area);
+}
+
+fn render_daemon_not_running(f: &mut Frame, area: Rect, has_data: bool) {
+    let title = if has_data {
+        " Mono - Historical Data "
+    } else {
+        " Mono "
+    };
+
+    let message = if has_data {
+        vec![
+            "".into(),
+            "  mono-tracker is not running".into(),
+            "".into(),
+            "  Start with: mono-tracker".into(),
+            "  Or: systemctl --user start mono".into(),
+            "".into(),
+            "  (Historical data is still viewable)".into(),
+        ]
+    } else {
+        vec![
+            "".into(),
+            "  mono-tracker is not running".into(),
+            "".into(),
+            "  Start with: mono-tracker".into(),
+            "  Or: systemctl --user start mono".into(),
+            "".into(),
+            "  No historical data available".into(),
+        ]
+    };
+
+    let paragraph = Paragraph::new(message)
+        .style(Style::default().fg(TEXT))
+        .block(
+            Block::default()
+                .title(title)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(ACCENT)),
+        )
+        .alignment(ratatui::prelude::Alignment::Center);
+
+    f.render_widget(paragraph, area);
 }
 
 fn render_header(f: &mut Frame, area: Rect, data: &TuiData, selected_day: usize) {
