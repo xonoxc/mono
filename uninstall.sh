@@ -5,11 +5,13 @@ INSTALL_DIR="${HOME}/.local/bin"
 CONFIG_DIR="${HOME}/.config/mono"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
 AUTOSTART_DIR="${HOME}/.config/autostart"
+DATA_DIR="${HOME}/.local/share/screen-time-tracker"
 
 echo "Uninstalling Mono..."
 
-# Stop and disable systemd service
-echo "Stopping systemd service..."
+# Stop running mono-tracker (both systemd and manual)
+echo "Stopping mono-tracker..."
+pkill -9 mono-tracker 2>/dev/null || true
 systemctl --user stop mono.service 2>/dev/null || true
 systemctl --user disable mono.service 2>/dev/null || true
 
@@ -34,9 +36,9 @@ rm -rf "$CONFIG_DIR"
 # Reload systemd
 systemctl --user daemon-reload 2>/dev/null || true
 
+# Remove database
+echo "Removing database..."
+rm -rf "$DATA_DIR"
+
 echo ""
 echo "Mono uninstalled successfully!"
-echo ""
-echo "Note: Your data is preserved at ~/.local/share/mono/"
-echo "To remove all data including database:"
-echo "  rm -rf ~/.local/share/mono"
