@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// A session represents a continuous period of using one application.
 /// Sessions are opened on window change and closed when the active window changes,
-/// idle is detected, or the daemon shuts down.
+/// becomes unfocused for >20s, or the daemon shuts down.
 #[derive(Debug, Clone)]
 pub struct Session {
     pub id: String,
@@ -12,7 +12,6 @@ pub struct Session {
     pub start_time: DateTime<Local>,
     pub end_time: Option<DateTime<Local>>,
     pub duration_secs: i64,
-    pub is_idle: bool,
     pub date: String,
 }
 
@@ -26,21 +25,6 @@ impl Session {
             start_time: now,
             end_time: None,
             duration_secs: 0,
-            is_idle: false,
-            date: now.format("%Y-%m-%d").to_string(),
-        }
-    }
-
-    pub fn new_idle() -> Self {
-        let now = Local::now();
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            app_name: "__idle__".to_string(),
-            window_title: "System Idle".to_string(),
-            start_time: now,
-            end_time: None,
-            duration_secs: 0,
-            is_idle: true,
             date: now.format("%Y-%m-%d").to_string(),
         }
     }

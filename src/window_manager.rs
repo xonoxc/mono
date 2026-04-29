@@ -7,6 +7,7 @@ pub struct WindowInfo {
     pub app_name: String,
     pub window_title: String,
     pub class_name: String,
+    pub focused: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -62,7 +63,6 @@ impl DisplayServer {
 #[allow(async_fn_in_trait)]
 pub trait WindowManager: Send + Sync {
     fn get_active_window(&self) -> Option<WindowInfo>;
-    fn get_idle_seconds(&self) -> u64;
     fn name(&self) -> &'static str;
 }
 
@@ -91,26 +91,8 @@ impl WindowManager for HyprlandManager {
             app_name: json.class.unwrap_or_else(|| app_class.clone()),
             window_title: json.title.unwrap_or_default(),
             class_name: app_class,
+            focused: json.mapped.unwrap_or(true),
         })
-    }
-
-    fn get_idle_seconds(&self) -> u64 {
-        let output = Command::new("hyprctl")
-            .args(["misc", "zhypridle", "check"])
-            .output()
-            .ok();
-
-        if let Some(output) = output {
-            if output.status.success() {
-                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                    if let Some(sec) = val.get("seconds").and_then(|v| v.as_u64()) {
-                        return sec;
-                    }
-                }
-            }
-        }
-
-        get_idle_dbus().or_else(get_idle_loginctl).unwrap_or(0)
     }
 
     fn name(&self) -> &'static str {
@@ -126,6 +108,8 @@ struct HyprlandWindow {
     app_class: Option<String>,
     #[serde(alias = "title")]
     title: Option<String>,
+    #[serde(alias = "mapped")]
+    mapped: Option<bool>,
 }
 
 pub struct SwayManager;
@@ -159,6 +143,7 @@ impl WindowManager for SwayManager {
                         .unwrap_or_default(),
                     window_title: node.name.clone().unwrap_or_default(),
                     class_name: node.app_id.clone().unwrap_or_default(),
+                    focused: true,
                 });
             }
             for child in &node.nodes {
@@ -175,10 +160,6 @@ impl WindowManager for SwayManager {
         }
 
         find_focused(&tree.root)
-    }
-
-    fn get_idle_seconds(&self) -> u64 {
-        get_idle_loginctl().unwrap_or(0)
     }
 
     fn name(&self) -> &'static str {
@@ -216,10 +197,6 @@ impl WindowManager for GenericWaylandManager {
             .or_else(get_active_window_xprop)
     }
 
-    fn get_idle_seconds(&self) -> u64 {
-        get_idle_dbus().or_else(get_idle_loginctl).unwrap_or(0)
-    }
-
     fn name(&self) -> &'static str {
         "wayland-generic"
     }
@@ -239,6 +216,7 @@ fn get_active_window_wmctrl() -> Option<WindowInfo> {
             app_name: parts[2].to_string(),
             window_title: String::new(),
             class_name: String::new(),
+            focused: true,
         })
     } else {
         None
@@ -264,6 +242,7 @@ fn get_active_window_xdotool() -> Option<WindowInfo> {
         app_name: String::new(),
         window_title: title,
         class_name: String::new(),
+        focused: true,
     })
 }
 
@@ -300,6 +279,7 @@ fn get_active_window_xprop() -> Option<WindowInfo> {
                 app_name: app_name.clone(),
                 window_title: String::new(),
                 class_name: app_name,
+                focused: true,
             });
         }
     }
@@ -307,93 +287,18 @@ fn get_active_window_xprop() -> Option<WindowInfo> {
     None
 }
 
-fn get_idle_dbus() -> Option<u64> {
-    let output = Command::new("dbus-send")
-        .args([
-            "--session",
-            "--dest=org.gnome.Mutter.IdleMonitor",
-            "--print-reply",
-            "/org/gnome/Mutter/IdleMonitor/Core",
-            "org.gnome.Mutter.IdleMonitor.GetIdletime",
-        ])
-        .output()
-        .ok()?;
-
-    if output.status.success() {
-        let text = String::from_utf8_lossy(&output.stdout);
-        if let Some(pos) = text.find("uint64 ") {
-            let val = text[pos + 7..].trim().split_whitespace().next()?;
-            return val.parse().ok();
-        }
-    }
-    None
-}
-
-fn get_idle_loginctl() -> Option<u64> {
-    let output = Command::new("loginctl")
-        .args(["show-session", "-p", "IdleHintSince", "$(whoami)"])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        let output = Command::new("loginctl")
-            .args(["seat-status", "-m"])
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let text = String::from_utf8_lossy(&output.stdout);
-        for line in text.lines() {
-            if line.contains("IdleHint=yes") || line.contains("active") {
-                if let Some(ts) = line.split_whitespace().last() {
-                    if let Ok(ts) = ts.parse::<i64>() {
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs() as i64;
-                        return Some((now - ts).max(0) as u64);
-                    }
-                }
-            }
-        }
-        return None;
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    if let Some(pos) = text.find('=') {
-        if let Ok(ts) = text[pos + 1..].trim().parse::<i64>() {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
-            return Some((now - ts).max(0) as u64);
-        }
-    }
-    None
-}
-
-pub struct X11Manager {
-    tracker: crate::tracker::Tracker,
-}
+pub struct X11Manager;
 
 impl X11Manager {
     pub fn new() -> Option<Self> {
-        crate::tracker::Tracker::new().map(|tracker| Self { tracker })
+        // X11 support removed - use Wayland or other display servers
+        None
     }
 }
 
 impl WindowManager for X11Manager {
     fn get_active_window(&self) -> Option<WindowInfo> {
-        self.tracker.get_active_window().map(|w| WindowInfo {
-            app_name: w.app_name,
-            window_title: w.window_title,
-            class_name: w.class_name,
-        })
-    }
-
-    fn get_idle_seconds(&self) -> u64 {
-        self.tracker.get_idle_seconds()
+        None
     }
 
     fn name(&self) -> &'static str {

@@ -6,44 +6,31 @@ use crate::models::Session;
 use crate::storage::Storage;
 use crate::window_manager::{WindowInfo, WindowManager};
 
-/// Idle threshold in seconds — after this many seconds of no input,
-/// we consider the user idle and pause the active session.
-const IDLE_THRESHOLD_SECS: u64 = 120; // 2 minutes
-
-/// Maximum session duration in seconds before forcing a session close.
-/// Prevents extremely long sessions that may indicate issues.
-const MAX_SESSION_DURATION_SECS: u64 = 7200; // 2 hours
-
 /// Minimum session duration in seconds to persist.
 /// Prevents writing thousands of sub-second sessions during rapid alt-tab.
 const MIN_SESSION_DURATION_SECS: i64 = 2;
 
-/// Event types that drive state transitions
-#[derive(Debug)]
-enum SessionEvent {
-    WindowChanged(WindowInfo),
-    IdleStarted,
-    IdleEnded(WindowInfo),
-    Shutdown,
-}
-
-/// Tracks the current state of the session manager
-#[derive(Debug, PartialEq)]
-enum TrackerState {
-    Active,
-    Idle,
-    Stopped,
-}
+/// Unfocused threshold in seconds — after this many seconds of unfocused window,
+/// we close the session and subtract the unfocused time.
+const UNFOCUSED_THRESHOLD_SECS: u64 = 20;
 
 /// Session Manager: maintains the current in-memory session and
 /// persists sessions only on state transitions (event-driven).
+/// Tracks unfocused time and subtracts it from session duration.
 pub struct SessionManager {
     storage: Arc<Storage>,
     tracker: Box<dyn WindowManager>,
     current_session: Option<Session>,
     state: TrackerState,
     last_window: Option<WindowInfo>,
-    was_idle: bool,
+    unfocus_start: Option<chrono::DateTime<Local>>,
+    total_unfocus_secs: u64,
+}
+
+#[derive(Debug, PartialEq)]
+enum TrackerState {
+    Active,
+    Stopped,
 }
 
 impl SessionManager {
@@ -55,7 +42,8 @@ impl SessionManager {
             current_session: None,
             state: TrackerState::Active,
             last_window: None,
-            was_idle: false,
+            unfocus_start: None,
+            total_unfocus_secs: 0,
         }
     }
 
@@ -66,51 +54,69 @@ impl SessionManager {
             return;
         }
 
-        let idle_secs = self.tracker.get_idle_seconds();
         let current_window = self.tracker.get_active_window();
+        let now = Local::now();
 
-        // Check if current session exceeded max duration
-        if let Some(ref session) = self.current_session {
-            let elapsed = (Local::now() - session.start_time).num_seconds() as u64;
-            if elapsed >= MAX_SESSION_DURATION_SECS {
-                if let Some(ref window) = current_window {
-                    info!("Session exceeded max duration, forcing close");
-                    self.handle_event(SessionEvent::WindowChanged(window.clone()));
+        match (&self.current_session, &current_window) {
+            // Case 1: No current session → start new one if window is focused
+            (None, Some(window)) if window.focused => {
+                debug!(
+                    "Opening new session → {} [{}]",
+                    window.app_name, window.window_title
+                );
+                self.open_session(window.clone());
+            }
+
+            // Case 2: Have session, window changed → close old, open new if focused
+            (Some(_), Some(window)) if self.has_window_changed(window) => {
+                debug!(
+                    "Window changed → {} [{}]",
+                    window.app_name, window.window_title
+                );
+                self.close_current_session();
+                if window.focused {
+                    self.open_session(window.clone());
                 }
             }
-        }
 
-        // Determine the event
-        let event = if idle_secs >= IDLE_THRESHOLD_SECS && !self.was_idle {
-            // Just crossed idle threshold
-            Some(SessionEvent::IdleStarted)
-        } else if idle_secs < IDLE_THRESHOLD_SECS && self.was_idle {
-            // Came back from idle
-            current_window
-                .as_ref()
-                .map(|w| SessionEvent::IdleEnded(w.clone()))
-        } else if !self.was_idle {
-            // Check if window changed
-            if let Some(ref window) = current_window {
-                if self.has_window_changed(window) {
-                    Some(SessionEvent::WindowChanged(window.clone()))
-                } else {
-                    None // No change, no event
+            // Case 3: Window unfocused (focused=false)
+            (Some(_), Some(window)) if !window.focused => {
+                if self.unfocus_start.is_none() {
+                    self.unfocus_start = Some(now);
+                    debug!("Window unfocused, starting unfocus timer");
                 }
-            } else {
-                None
+                // Check if unfocused > 20 sec
+                if let Some(start) = self.unfocus_start {
+                    let unfocused = (now - start).num_seconds() as u64;
+                    if unfocused >= UNFOCUSED_THRESHOLD_SECS {
+                        info!("Unfocused for {} sec, closing session", unfocused);
+                        self.total_unfocus_secs += unfocused;
+                        self.close_current_session_with_adjustment();
+                    }
+                }
             }
-        } else {
-            None // Still idle, do nothing
-        };
 
-        // Process the event
-        if let Some(event) = event {
-            self.handle_event(event);
+            // Case 4: Window refocused within 20 sec
+            (Some(_), Some(window)) if window.focused => {
+                if let Some(start) = self.unfocus_start {
+                    let unfocused = (now - start).num_seconds() as u64;
+                    if unfocused < UNFOCUSED_THRESHOLD_SECS {
+                        // Continue session, track unfocused time
+                        self.total_unfocus_secs += unfocused;
+                        debug!("Window refocused after {} sec, continuing session", unfocused);
+                    }
+                    self.unfocus_start = None;
+                }
+            }
+
+            // Case 5: No window active (None returned)
+            (Some(_), None) => {
+                info!("No active window, closing session");
+                self.close_current_session();
+            }
+
+            _ => {}
         }
-
-        // Update idle tracking state
-        self.was_idle = idle_secs >= IDLE_THRESHOLD_SECS;
     }
 
     fn has_window_changed(&self, new_window: &WindowInfo) -> bool {
@@ -122,48 +128,7 @@ impl SessionManager {
         }
     }
 
-    fn handle_event(&mut self, event: SessionEvent) {
-        match event {
-            SessionEvent::WindowChanged(window) => {
-                debug!(
-                    "Window changed → {} [{}]",
-                    window.app_name, window.window_title
-                );
-                self.close_current_session();
-                self.open_session(window);
-            }
-
-            SessionEvent::IdleStarted => {
-                info!("Idle detected, pausing active session");
-                self.close_current_session();
-                // Open an idle session so we track idle duration
-                let idle_session = Session::new_idle();
-                self.storage.insert_session(&idle_session);
-                self.current_session = Some(idle_session);
-                self.state = TrackerState::Idle;
-            }
-
-            SessionEvent::IdleEnded(window) => {
-                info!("User returned from idle");
-                self.close_current_session();
-                self.state = TrackerState::Active;
-                self.open_session(window);
-            }
-
-            SessionEvent::Shutdown => {
-                info!("Shutting down, closing current session");
-                self.close_current_session();
-                self.state = TrackerState::Stopped;
-            }
-        }
-    }
-
     fn open_session(&mut self, window: WindowInfo) {
-        let _session = Session::new(
-            window.class_name.clone(), // Use WM_CLASS class name for consistency
-            window.window_title.clone(),
-        );
-
         // Use class_name if available, fall back to app_name
         let app = if !window.class_name.is_empty() {
             &window.class_name
@@ -176,6 +141,7 @@ impl SessionManager {
         self.storage.insert_session(&session);
         self.current_session = Some(session);
         self.last_window = Some(window);
+        self.unfocus_start = None;
     }
 
     fn close_current_session(&mut self) {
@@ -183,7 +149,7 @@ impl SessionManager {
             session.close();
 
             // Only persist if session was long enough
-            if session.duration_secs >= MIN_SESSION_DURATION_SECS || session.is_idle {
+            if session.duration_secs >= MIN_SESSION_DURATION_SECS {
                 self.storage.close_session(
                     &session.id,
                     session.end_time.unwrap(),
@@ -203,9 +169,44 @@ impl SessionManager {
         }
     }
 
+    fn close_current_session_with_adjustment(&mut self) {
+        if let Some(mut session) = self.current_session.take() {
+            session.close();
+
+            // Subtract unfocused time from duration
+            let adjusted_duration = (session.duration_secs - self.total_unfocus_secs as i64)
+                .max(0);
+
+            if adjusted_duration >= MIN_SESSION_DURATION_SECS {
+                self.storage.close_session(
+                    &session.id,
+                    session.end_time.unwrap(),
+                    adjusted_duration,
+                );
+                debug!(
+                    "Closed session with adjustment: {} ({} secs, {} unfocused)",
+                    session.app_name, adjusted_duration, self.total_unfocus_secs
+                );
+            } else {
+                self.storage.delete_session(&session.id);
+                debug!(
+                    "Discarding session after adjustment: {} ({} secs adjusted from {})",
+                    session.app_name, adjusted_duration, session.duration_secs
+                );
+            }
+
+            self.total_unfocus_secs = 0;
+            self.unfocus_start = None;
+        }
+    }
+
     /// Gracefully shutdown — close current session and mark stopped
     pub fn shutdown(&mut self) {
-        self.handle_event(SessionEvent::Shutdown);
+        if self.current_session.is_some() {
+            self.close_current_session_with_adjustment();
+        }
+        self.state = TrackerState::Stopped;
+        info!("Session manager stopped");
     }
 
     /// Check if the tracker is running

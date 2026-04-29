@@ -157,7 +157,7 @@ impl Storage {
         close_open_sessions_before(&conn, &session.start_time);
         conn.execute(
             "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, is_idle, date)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)",
             params![
                 session.id,
                 session.app_name,
@@ -165,7 +165,6 @@ impl Storage {
                 session.start_time.to_rfc3339(),
                 session.end_time.map(|t| t.to_rfc3339()),
                 session.duration_secs,
-                session.is_idle as i32,
                 session.date,
             ],
         ).unwrap_or_else(|e| {
@@ -263,7 +262,7 @@ impl Storage {
         let conn = self.conn.lock();
 
         let total_seconds: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(duration_secs), 0) FROM sessions WHERE date = ?1 AND is_idle = 0",
+            "SELECT COALESCE(SUM(duration_secs), 0) FROM sessions WHERE date = ?1",
             params![date],
             |row| row.get(0),
         ).unwrap_or(0);
@@ -272,7 +271,7 @@ impl Storage {
             .prepare(
                 "SELECT app_name, SUM(duration_secs) as total
              FROM sessions
-             WHERE date = ?1 AND is_idle = 0
+             WHERE date = ?1
              GROUP BY app_name
              ORDER BY total DESC",
             )
@@ -296,16 +295,10 @@ impl Storage {
             })
             .collect();
 
-        let idle_seconds: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(duration_secs), 0) FROM sessions WHERE date = ?1 AND is_idle = 1",
-            params![date],
-            |row| row.get(0),
-        ).unwrap_or(0);
-
         TodayUsage {
             date: date.to_string(),
             total_seconds,
-            idle_seconds,
+            idle_seconds: 0,
             app_breakdown,
         }
     }
@@ -321,7 +314,7 @@ impl Storage {
             days.push(DaySummary {
                 date: date_str,
                 total_seconds: usage.total_seconds,
-                idle_seconds: usage.idle_seconds,
+                idle_seconds: 0,
                 top_apps: usage.app_breakdown.iter().take(5).cloned().collect(),
             });
         }
@@ -349,7 +342,7 @@ impl Storage {
             .prepare(
                 "SELECT app_name, SUM(duration_secs) as total
              FROM sessions
-             WHERE date = ?1 AND is_idle = 0
+             WHERE date = ?1
              GROUP BY app_name
              ORDER BY total DESC",
             )
@@ -379,7 +372,7 @@ impl Storage {
         let target = date.unwrap_or(&today);
 
         let mut stmt = conn.prepare(
-            "SELECT id, app_name, window_title, start_time, end_time, duration_secs, is_idle, date
+            "SELECT id, app_name, window_title, start_time, end_time, duration_secs, 0, date
              FROM sessions
              WHERE date = ?1
              ORDER BY start_time DESC
@@ -394,7 +387,7 @@ impl Storage {
                 start_time: row.get(3)?,
                 end_time: row.get(4)?,
                 duration_secs: row.get(5)?,
-                is_idle: row.get::<_, i32>(6)? != 0,
+                is_idle: false,
                 date: row.get(7)?,
             })
         })
@@ -693,14 +686,14 @@ mod tests {
         .unwrap();
 
         conn.execute(
-            "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, is_idle, date)
-             VALUES ('a', 'kitty', '', '2026-04-23T10:00:00+05:30', '2026-04-23T10:30:00+05:30', 1800, 0, '2026-04-23')",
+            "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, date)
+             VALUES ('a', 'kitty', '', '2026-04-23T10:00:00+05:30', '2026-04-23T10:30:00+05:30', 1800, '2026-04-23')",
             [],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, is_idle, date)
-             VALUES ('b', 'code', '', '2026-04-23T10:15:00+05:30', '2026-04-23T10:45:00+05:30', 1800, 0, '2026-04-23')",
+            "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, date)
+             VALUES ('b', 'code', '', '2026-04-23T10:15:00+05:30', '2026-04-23T10:45:00+05:30', 1800, '2026-04-23')",
             [],
         )
         .unwrap();
