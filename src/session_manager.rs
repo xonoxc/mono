@@ -35,7 +35,6 @@ enum TrackerState {
 
 impl SessionManager {
     pub fn new(storage: Arc<Storage>, tracker: Box<dyn WindowManager>) -> Self {
-        storage.close_all_open_sessions();
         Self {
             storage,
             tracker,
@@ -207,6 +206,28 @@ impl SessionManager {
         }
         self.state = TrackerState::Stopped;
         info!("Session manager stopped");
+    }
+
+    /// Close current session with a specific end time (for shutdown signals)
+    pub fn close_session_with_time(&mut self, end_time: chrono::DateTime<Local>) {
+        if let Some(mut session) = self.current_session.take() {
+            session.end_time = Some(end_time);
+            session.duration_secs = (end_time - session.start_time).num_seconds();
+            let adjusted_duration = (session.duration_secs - self.total_unfocus_secs as i64).max(0);
+            if adjusted_duration >= MIN_SESSION_DURATION_SECS {
+                self.storage.close_session(&session.id, end_time, adjusted_duration);
+                info!("Closed session on shutdown signal: {} ({} secs)", session.app_name, adjusted_duration);
+            } else {
+                self.storage.delete_session(&session.id);
+            }
+            self.total_unfocus_secs = 0;
+            self.unfocus_start = None;
+        }
+    }
+
+    /// Check if there's an active session (for signal handler)
+    pub fn has_active_session(&self) -> bool {
+        self.current_session.is_some()
     }
 
     /// Check if the tracker is running

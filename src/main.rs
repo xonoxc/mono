@@ -3,12 +3,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
+use chrono::Local;
+use tokio::sync::mpsc;
 
 use mono::autostart;
 use mono::ipc_server;
 use mono::session_manager::SessionManager;
 use mono::storage::Storage;
 use mono::window_manager::{self};
+mod shutdown_handler;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -72,9 +75,45 @@ fn main() {
     });
 
     let mut session_mgr = SessionManager::new(storage.clone(), tracker);
+
+    let (tx, mut rx) = mpsc::channel::<shutdown_handler::ShutdownSignal>(10);
+    let tx_clone = tx.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create tokio runtime");
+        rt.block_on(async {
+            let handler = shutdown_handler::ShutdownHandler::new(tx_clone);
+            if let Err(e) = handler.run().await {
+                warn!("Shutdown handler error: {}", e);
+            }
+        });
+    });
+
     info!("Session manager started — tracking active window");
 
     while running.load(Ordering::SeqCst) {
+        while let Ok(signal) = rx.try_recv() {
+            match signal {
+                shutdown_handler::ShutdownSignal::PrepareForSleep { start } => {
+                    if start && session_mgr.has_active_session() {
+                        info!("PrepareForSleep(start=true) - closing session");
+                        session_mgr.close_session_with_time(Local::now());
+                    } else if !start {
+                        info!("Resumed from sleep - tick() will start fresh");
+                    }
+                }
+                shutdown_handler::ShutdownSignal::PrepareForShutdown { start } => {
+                    if start && session_mgr.has_active_session() {
+                        info!("PrepareForShutdown(start=true) - closing session");
+                        session_mgr.close_session_with_time(Local::now());
+                    } else if !start {
+                        info!("Shutdown cancelled - sessions remain open");
+                    }
+                }
+            }
+        }
         session_mgr.tick();
         thread::sleep(Duration::from_secs(1));
     }
