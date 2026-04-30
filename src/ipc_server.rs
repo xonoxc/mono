@@ -6,12 +6,9 @@ use std::sync::Arc;
 use crate::models::*;
 use crate::storage::Storage;
 
-/// Application state shared across all HTTP handlers
 pub struct AppState {
     pub storage: Arc<Storage>,
 }
-
-// ─── Query Parameters ────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct DateQuery {
@@ -29,8 +26,6 @@ pub struct CategoryUpdate {
     pub app_name: String,
     pub category: String,
 }
-
-// ─── Handlers ────────────────────────────────────────────────────
 
 async fn health() -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({ "status": "ok", "service": "screen-time-tracker" }))
@@ -94,10 +89,6 @@ async fn browser_event(
     HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
 }
 
-// ─── Server ──────────────────────────────────────────────────────
-
-/// Start the HTTP IPC server on localhost:9746
-/// This port is chosen to be unlikely to conflict with other services.
 pub async fn start_server(storage: Arc<Storage>) -> std::io::Result<()> {
     let bind_addr = "127.0.0.1:9746";
     info!("Starting IPC server on {}", bind_addr);
@@ -107,19 +98,15 @@ pub async fn start_server(storage: Arc<Storage>) -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
-            // Health check
             .route("/health", web::get().to(health))
-            // Core API endpoints
             .route("/today-usage", web::get().to(today_usage))
             .route("/weekly-usage", web::get().to(weekly_usage))
             .route("/app-breakdown", web::get().to(app_breakdown))
             .route("/session-history", web::get().to(session_history))
             .route("/website-usage", web::get().to(website_usage))
             .route("/focus-score", web::get().to(focus_score))
-            // Category management
             .route("/categories", web::get().to(get_categories))
             .route("/categories", web::put().to(update_category))
-            // Browser extension endpoint
             .route("/browser-event", web::post().to(browser_event))
     })
     .bind(bind_addr)?
