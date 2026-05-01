@@ -102,7 +102,10 @@ impl SessionManager {
                     if unfocused < UNFOCUSED_THRESHOLD_SECS {
                         // Continue session, track unfocused time
                         self.total_unfocus_secs += unfocused;
-                        debug!("Window refocused after {} sec, continuing session", unfocused);
+                        debug!(
+                            "Window refocused after {} sec, continuing session",
+                            unfocused
+                        );
                     }
                     self.unfocus_start = None;
                 }
@@ -173,8 +176,7 @@ impl SessionManager {
             session.close();
 
             // Subtract unfocused time from duration
-            let adjusted_duration = (session.duration_secs - self.total_unfocus_secs as i64)
-                .max(0);
+            let adjusted_duration = (session.duration_secs - self.total_unfocus_secs as i64).max(0);
 
             if adjusted_duration >= MIN_SESSION_DURATION_SECS {
                 self.storage.close_session(
@@ -215,8 +217,12 @@ impl SessionManager {
             session.duration_secs = (end_time - session.start_time).num_seconds();
             let adjusted_duration = (session.duration_secs - self.total_unfocus_secs as i64).max(0);
             if adjusted_duration >= MIN_SESSION_DURATION_SECS {
-                self.storage.close_session(&session.id, end_time, adjusted_duration);
-                info!("Closed session on shutdown signal: {} ({} secs)", session.app_name, adjusted_duration);
+                self.storage
+                    .close_session(&session.id, end_time, adjusted_duration);
+                info!(
+                    "Closed session on shutdown signal: {} ({} secs)",
+                    session.app_name, adjusted_duration
+                );
             } else {
                 self.storage.delete_session(&session.id);
             }

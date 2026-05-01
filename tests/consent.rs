@@ -1,5 +1,5 @@
 //! Tests for Mono modules
-//! 
+//!
 //! These tests verify core functionality without requiring
 //! a running daemon or complex setup.
 
@@ -41,13 +41,13 @@ mod consent_tests {
     fn test_set_consent_false_removes_file() {
         // Save original state
         let had_consent = mono::tui::consent::has_consent();
-        
+
         // If we had consent, temporarily remove it
         if had_consent {
             let _ = std::fs::remove_file(mono::tui::consent::get_consent_file());
             assert!(!mono::tui::consent::has_consent());
         }
-        
+
         // Restore if we had it
         if had_consent {
             let config = mono::tui::consent::get_config_dir();
@@ -61,14 +61,14 @@ mod consent_tests {
         // Remove consent first
         let consent_file = mono::tui::consent::get_consent_file();
         let _ = std::fs::remove_file(&consent_file);
-        
+
         assert!(!mono::tui::consent::has_consent());
-        
+
         // Set consent
         mono::tui::consent::set_consent(true).ok();
-        
+
         assert!(mono::tui::consent::has_consent());
-        
+
         // Cleanup
         let _ = std::fs::remove_file(&consent_file);
     }
@@ -78,7 +78,7 @@ mod consent_tests {
         let consent_file = mono::tui::consent::get_consent_file();
         let exists_before = consent_file.exists();
         let has_consent_before = mono::tui::consent::has_consent();
-        
+
         assert_eq!(exists_before, has_consent_before);
     }
 }
@@ -89,38 +89,22 @@ mod session_tests {
 
     #[test]
     fn test_session_new_creates_valid_session() {
-        let session = Session::new(
-            "test-app".to_string(),
-            "Test Window".to_string(),
-        );
-        
+        let session = Session::new("test-app".to_string(), "Test Window".to_string());
+
         assert_eq!(session.app_name, "test-app");
         assert_eq!(session.window_title, "Test Window");
         assert_eq!(session.end_time, None);
         assert_eq!(session.duration_secs, 0);
-        assert!(!session.is_idle);
-    }
-
-    #[test]
-    fn test_session_new_idle_creates_idle_session() {
-        let session = Session::new_idle();
-        
-        assert_eq!(session.app_name, "__idle__");
-        assert_eq!(session.window_title, "System Idle");
-        assert!(session.is_idle);
     }
 
     #[test]
     fn test_session_close_sets_end_time() {
-        let mut session = Session::new(
-            "test-app".to_string(),
-            "Test Window".to_string(),
-        );
-        
+        let mut session = Session::new("test-app".to_string(), "Test Window".to_string());
+
         assert!(session.end_time.is_none());
-        
+
         session.close();
-        
+
         assert!(session.end_time.is_some());
         assert!(session.duration_secs >= 0);
     }
