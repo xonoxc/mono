@@ -45,6 +45,7 @@ The install script builds the release binary, installs it to `~/.local/bin/mono-
 ```bash
 cargo build --release
 ./install.sh
+mono # launch dashboard
 ```
 
 ### Uninstall
