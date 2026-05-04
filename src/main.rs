@@ -35,7 +35,7 @@ fn main() {
         None => {
             eprintln!("ERROR: Failed to initialize window manager.");
             eprintln!(
-                "Please ensure you're running X11 or a supported Wayland compositor (Hyprland, Sway, GNOME, KDE)."
+                "Please ensure you're running a supported Wayland compositor (Hyprland, Sway, GNOME, KDE)."
             );
             std::process::exit(1);
         }

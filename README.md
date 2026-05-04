@@ -34,7 +34,7 @@ A privacy-first screen time tracking application for Linux with a polished termi
 | **Hyprland** | Full support | Automatic detection |
 | **Sway** | Full support | Automatic detection |
 | **GNOME (Wayland)** | Supported | See [GNOME Setup](#gnome-wayland-setup) below |
-| **KDE (Wayland)** | Partial | Falls back to generic Wayland |
+| **KDE (Wayland)** | Supported | Uses KWin D-Bus interface |
 | **X11** | Disabled | Use Wayland instead |
 
 ---
@@ -172,6 +172,7 @@ src/
 │   ├── HyprlandManager   # Hyprland (hyprctl)
 │   ├── SwayManager       # Sway (swaymsg)
 │   ├── GnomeWaylandManager # GNOME Wayland (D-Bus)
+│   ├── KDEWaylandManager # KDE Wayland (KWin D-Bus)
 │   └── GenericWaylandManager # Fallback (X11 tools)
 ├── ipc_server.rs        # IPC server
 └── tui/

@@ -70,7 +70,12 @@ pub struct HyprlandManager;
 
 impl HyprlandManager {
     pub fn new() -> Option<Self> {
-        which::which("hyprctl").ok().map(|_| Self)
+        // Only create if HYPRLAND_INSTANCE_SIGNATURE is set (actually running Hyprland)
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            which::which("hyprctl").ok().map(|_| Self)
+        } else {
+            None
+        }
     }
 }
 
@@ -432,6 +437,185 @@ fn get_active_window_xprop() -> Option<WindowInfo> {
     None
 }
 
+pub struct KDEWaylandManager;
+
+impl KDEWaylandManager {
+    pub fn new() -> Option<Self> {
+        // Check for qdbus6 which is the proper tool for KDE Plasma 6
+        if which::which("qdbus6").is_ok() || which::which("qdbus").is_ok() {
+            Some(Self)
+        } else {
+            None
+        }
+    }
+}
+
+impl KDEWaylandManager {
+    fn get_active_window_via_kwin_script(&self) -> Option<WindowInfo> {
+        // Create a temporary JavaScript file for KWin scripting
+        let script_content = r#"
+            var client = workspace.activeWindow;
+            if (client) {
+                var result = {
+                    title: client.caption || '',
+                    app_id: client.resourceClass || client.appId || ''
+                };
+                print('MONO_WIN:' + JSON.stringify(result));
+            } else {
+                print('MONO_WIN:{}');
+            }
+        "#;
+
+        let script_path = "/tmp/mono_kwin_script.js";
+        std::fs::write(script_path, script_content).ok()?;
+
+        // Use qdbus6 to load and run the script
+        let qdbus_cmd = if which::which("qdbus6").is_ok() {
+            "qdbus6"
+        } else {
+            "qdbus"
+        };
+
+        // Load the script
+        let load_output = Command::new(qdbus_cmd)
+            .args([
+                "org.kde.KWin",
+                "/Scripting",
+                "org.kde.kwin.Scripting.loadScript",
+                script_path,
+            ])
+            .output()
+            .ok()?;
+
+        if !load_output.status.success() {
+            return None;
+        }
+
+        // Get script ID from output
+        let script_id = String::from_utf8_lossy(&load_output.stdout)
+            .trim()
+            .to_string();
+        
+        if script_id.is_empty() || script_id == "0" {
+            return None;
+        }
+
+        // Start time for journalctl filtering
+        let start_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+
+        // Start the script (using start method, not run)
+        let _ = Command::new(qdbus_cmd)
+            .args([
+                "org.kde.KWin",
+                "/Scripting",
+                "org.kde.kwin.Scripting.start",
+            ])
+            .output();
+
+        // Wait a bit for script to execute and output to journal
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // Stop the script
+        let _ = Command::new(qdbus_cmd)
+            .args([
+                "org.kde.KWin",
+                "/Scripting",
+                "org.kde.kwin.Scripting.unloadScript",
+                &format!("mono_kwin_script_{}", script_id),
+            ])
+            .output();
+
+        // Read from journalctl - look for MONO_WIN: prefix
+        let journal_output = Command::new("journalctl")
+            .args([
+                "_COMM=kwin_wayland",
+                "-o",
+                "cat",
+                "--since",
+                &format!("@{}", start_time),
+            ])
+            .output()
+            .ok()?;
+
+        let journal_logs = String::from_utf8_lossy(&journal_output.stdout);
+
+        // Find the MONO_WIN: line and parse JSON
+        for line in journal_logs.lines() {
+            if line.contains("MONO_WIN:") {
+                if let Some(json_start) = line.find("MONO_WIN:") {
+                    let json_str = &line[json_start + 9..]; // Skip "MONO_WIN:"
+                    if let Ok(data) = serde_json::from_str::<serde_json::Value>(json_str) {
+                        let title = data
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let app_id = data
+                            .get("app_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        if title.is_empty() && app_id.is_empty() {
+                            return None;
+                        }
+
+                        return Some(WindowInfo {
+                            app_name: if !app_id.is_empty() {
+                                app_id.clone()
+                            } else {
+                                "unknown".to_string()
+                            },
+                            window_title: title,
+                            class_name: app_id,
+                            focused: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    fn get_active_window_via_x11_fallback(&self) -> Option<WindowInfo> {
+        // Fallback: try X11 tools (may work on some KDE XWayland setups)
+        Command::new("xdotool")
+            .args(["getactivewindow", "getwindowname"])
+            .output()
+            .ok()
+            .and_then(|output| {
+                if output.status.success() {
+                    let title = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !title.is_empty() {
+                        return Some(WindowInfo {
+                            app_name: "unknown".to_string(),
+                            window_title: title,
+                            class_name: String::new(),
+                            focused: true,
+                        });
+                    }
+                }
+                None
+            })
+    }
+}
+
+impl WindowManager for KDEWaylandManager {
+    fn get_active_window(&self) -> Option<WindowInfo> {
+        // Try KWin script method (primary for KDE Wayland)
+        self.get_active_window_via_kwin_script()
+            .or_else(|| self.get_active_window_via_x11_fallback())
+    }
+
+    fn name(&self) -> &'static str {
+        "kde-wayland"
+    }
+}
+
 pub struct X11Manager;
 
 impl X11Manager {
@@ -469,7 +653,15 @@ pub fn create_manager() -> Option<Box<dyn WindowManager>> {
                         .map(|m| Box::new(m) as Box<dyn WindowManager>)
                 })
         }
-        DisplayServer::KDE | DisplayServer::Wlroots => {
+        DisplayServer::KDE => {
+            KDEWaylandManager::new()
+                .map(|m| Box::new(m) as Box<dyn WindowManager>)
+                .or_else(|| {
+                    GenericWaylandManager::new()
+                        .map(|m| Box::new(m) as Box<dyn WindowManager>)
+                })
+        }
+        DisplayServer::Wlroots => {
             if let Some(m) = HyprlandManager::new() {
                 return Some(Box::new(m) as Box<dyn WindowManager>);
             }
