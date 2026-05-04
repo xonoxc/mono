@@ -452,29 +452,33 @@ impl KDEWaylandManager {
 
 impl KDEWaylandManager {
     fn get_active_window_via_kwin_script(&self) -> Option<WindowInfo> {
-        // Create a temporary JavaScript file for KWin scripting
-        let script_content = r#"
-            var client = workspace.activeWindow;
-            if (client) {
-                var result = {
-                    title: client.caption || '',
-                    app_id: client.resourceClass || client.appId || ''
-                };
-                print('MONO_WIN:' + JSON.stringify(result));
-            } else {
-                print('MONO_WIN:{}');
-            }
-        "#;
-
-        let script_path = "/tmp/mono_kwin_script.js";
-        std::fs::write(script_path, script_content).ok()?;
-
-        // Use qdbus6 to load and run the script
         let qdbus_cmd = if which::which("qdbus6").is_ok() {
             "qdbus6"
         } else {
             "qdbus"
         };
+
+        // Generate a unique marker for this query
+        let marker = format!("MONO_WIN_{}", std::process::id());
+
+        let script_content = format!(
+            r#"
+            var client = workspace.activeWindow;
+            if (client) {{
+                var result = {{
+                    title: client.caption || '',
+                    app_id: client.resourceClass || client.appId || ''
+                }};
+                print('{}:' + JSON.stringify(result));
+            }} else {{
+                print('{}:{{}}');
+            }}
+        "#,
+            marker, marker
+        );
+
+        let script_path = "/tmp/mono_kwin_script.js";
+        std::fs::write(script_path, script_content).ok()?;
 
         // Load the script
         let load_output = Command::new(qdbus_cmd)
@@ -491,22 +495,21 @@ impl KDEWaylandManager {
             return None;
         }
 
-        // Get script ID from output
         let script_id = String::from_utf8_lossy(&load_output.stdout)
             .trim()
             .to_string();
-        
+
         if script_id.is_empty() || script_id == "0" {
             return None;
         }
 
-        // Start time for journalctl filtering
+        // Record time before execution
         let start_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .ok()?
             .as_secs();
 
-        // Start the script (using start method, not run)
+        // Start the script
         let _ = Command::new(qdbus_cmd)
             .args([
                 "org.kde.KWin",
@@ -515,10 +518,10 @@ impl KDEWaylandManager {
             ])
             .output();
 
-        // Wait a bit for script to execute and output to journal
+        // Wait for script to execute
         std::thread::sleep(std::time::Duration::from_millis(500));
 
-        // Stop the script
+        // Unload the script
         let _ = Command::new(qdbus_cmd)
             .args([
                 "org.kde.KWin",
@@ -528,7 +531,7 @@ impl KDEWaylandManager {
             ])
             .output();
 
-        // Read from journalctl - look for MONO_WIN: prefix
+        // Read from journalctl
         let journal_output = Command::new("journalctl")
             .args([
                 "_COMM=kwin_wayland",
@@ -536,44 +539,43 @@ impl KDEWaylandManager {
                 "cat",
                 "--since",
                 &format!("@{}", start_time),
+                "--no-pager",
             ])
             .output()
             .ok()?;
 
         let journal_logs = String::from_utf8_lossy(&journal_output.stdout);
 
-        // Find the MONO_WIN: line and parse JSON
+        // Find our marked line and parse JSON
         for line in journal_logs.lines() {
-            if line.contains("MONO_WIN:") {
-                if let Some(json_start) = line.find("MONO_WIN:") {
-                    let json_str = &line[json_start + 9..]; // Skip "MONO_WIN:"
-                    if let Ok(data) = serde_json::from_str::<serde_json::Value>(json_str) {
-                        let title = data
-                            .get("title")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let app_id = data
-                            .get("app_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
+            if line.starts_with(&format!("{}:", marker)) {
+                let json_str = &line[marker.len() + 1..];
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    let title = data
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let app_id = data
+                        .get("app_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
 
-                        if title.is_empty() && app_id.is_empty() {
-                            return None;
-                        }
-
-                        return Some(WindowInfo {
-                            app_name: if !app_id.is_empty() {
-                                app_id.clone()
-                            } else {
-                                "unknown".to_string()
-                            },
-                            window_title: title,
-                            class_name: app_id,
-                            focused: true,
-                        });
+                    if title.is_empty() && app_id.is_empty() {
+                        return None;
                     }
+
+                    return Some(WindowInfo {
+                        app_name: if !app_id.is_empty() {
+                            app_id.clone()
+                        } else {
+                            "unknown".to_string()
+                        },
+                        window_title: title,
+                        class_name: app_id,
+                        focused: true,
+                    });
                 }
             }
         }

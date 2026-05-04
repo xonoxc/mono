@@ -3,8 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-const SERVICE_NAME: &str = "screen-time-tracker";
-const DESKTOP_FILE_NAME: &str = "screen-time-tracker.desktop";
+const SERVICE_NAME: &str = "mono-tracker";
+const DESKTOP_FILE_NAME: &str = "mono-tracker.desktop";
 
 pub fn get_autostart_config_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|p| p.join("autostart"))
@@ -34,15 +34,19 @@ pub fn is_autostart_enabled() -> bool {
 pub fn setup_autostart() -> Result<(), Box<dyn std::error::Error>> {
     info!("Setting up autostart...");
 
-    let systemd_ok = try_setup_systemd();
-    if systemd_ok.is_ok() {
-        info!("Autostart configured via systemd");
-        return Ok(());
-    }
-
+    // Try XDG autostart first (works across all desktop environments)
     let xdg_ok = try_setup_xdg_autostart();
     if xdg_ok.is_ok() {
         info!("Autostart configured via XDG autostart");
+        // Also set up systemd as fallback
+        let _ = try_setup_systemd();
+        return Ok(());
+    }
+
+    // Fall back to systemd if XDG fails
+    let systemd_ok = try_setup_systemd();
+    if systemd_ok.is_ok() {
+        info!("Autostart configured via systemd");
         return Ok(());
     }
 

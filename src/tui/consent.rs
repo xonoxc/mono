@@ -65,6 +65,25 @@ pub fn setup_autostart() -> std::io::Result<()> {
         ));
     }
 
+    // Clean up old services
+    let _ = fs::remove_file(systemd_dir.join("mono.service"));
+    let _ = fs::remove_file(autostart_dir.join("mono.desktop"));
+    let _ = fs::remove_file(systemd_dir.join("screen-time-tracker.service"));
+    let _ = fs::remove_file(autostart_dir.join("screen-time-tracker.desktop"));
+
+    let desktop_entry = format!(
+        r#"[Desktop Entry]
+Type=Application
+Name=Mono Screen Time Tracker
+Exec={}
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+Comment=Privacy-first screen time monitoring daemon
+"#,
+        daemon_path.display()
+    );
+
     let systemd_service = format!(
         r#"[Unit]
 Description=Mono Screen Time Tracker
@@ -82,30 +101,20 @@ WantedBy=graphical-session.target
         daemon_path.display()
     );
 
-    let desktop_entry = format!(
-        r#"[Desktop Entry]
-Type=Application
-Name=Mono Screen Time Tracker
-Exec={}
-Hidden=false
-NoDisplay=true
-X-GNOME-Autostart-enabled=true
-"#,
-        daemon_path.display()
-    );
-
     if let Some(_user) = std::env::var_os("USER") {
         let _ = fs::create_dir_all(&systemd_dir);
         let _ = fs::create_dir_all(&autostart_dir);
 
-        let service_path = systemd_dir.join("mono.service");
-        let _ = fs::write(&service_path, systemd_service);
-
-        let desktop_path = autostart_dir.join("mono.desktop");
+        // XDG autostart as primary method (works across all desktop environments)
+        let desktop_path = autostart_dir.join("mono-tracker.desktop");
         let _ = fs::write(&desktop_path, desktop_entry);
 
+        // Systemd as fallback
+        let service_path = systemd_dir.join("mono-tracker.service");
+        let _ = fs::write(&service_path, systemd_service);
+
         let _ = Command::new("systemctl")
-            .args(["--user", "enable", "mono.service"])
+            .args(["--user", "enable", "mono-tracker.service"])
             .output();
     }
 
@@ -128,11 +137,18 @@ pub fn remove_autostart() -> std::io::Result<()> {
 
     if let Some(_user) = std::env::var_os("USER") {
         let _ = Command::new("systemctl")
+            .args(["--user", "disable", "mono-tracker.service"])
+            .output();
+        let _ = Command::new("systemctl")
             .args(["--user", "disable", "mono.service"])
             .output();
 
+        let _ = fs::remove_file(systemd_dir.join("mono-tracker.service"));
         let _ = fs::remove_file(systemd_dir.join("mono.service"));
+        let _ = fs::remove_file(systemd_dir.join("screen-time-tracker.service"));
+        let _ = fs::remove_file(autostart_dir.join("mono-tracker.desktop"));
         let _ = fs::remove_file(autostart_dir.join("mono.desktop"));
+        let _ = fs::remove_file(autostart_dir.join("screen-time-tracker.desktop"));
     }
 
     Ok(())
