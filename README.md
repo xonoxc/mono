@@ -33,7 +33,7 @@ A privacy-first screen time tracking application for Linux with a polished termi
 ## Installation
 
 ```bash
-git clone https://github.com/anomalyco/mono.git
+git clone https://github.com/xonoxc/mono.git
 cd mono
 ./install.sh
 ```
