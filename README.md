@@ -26,7 +26,58 @@ A privacy-first screen time tracking application for Linux with a polished termi
 - **Rust** 1.70 or later
 - **Cargo** (included with Rust)
 - **SQLite** (bundled with the application)
-- **Hyprland** (optional, for window title tracking)
+
+### Supported Desktop Environments
+
+| Environment | Status | Notes |
+|-------------|--------|-------|
+| **Hyprland** | Full support | Automatic detection |
+| **Sway** | Full support | Automatic detection |
+| **GNOME (Wayland)** | Supported | See [GNOME Setup](#gnome-wayland-setup) below |
+| **KDE (Wayland)** | Partial | Falls back to generic Wayland |
+| **X11** | Disabled | Use Wayland instead |
+
+---
+
+## GNOME Wayland Setup
+
+GNOME on Wayland restricts window state access for security. To enable window tracking, choose one of the following methods:
+
+### Method 1: Enable GNOME Shell Introspect (Recommended)
+
+```bash
+gsettings set org.gnome.shell introspect true
+```
+
+This enables the official `org.gnome.Shell.Introspect` D-Bus API used by Mono to detect the focused window.
+
+### Method 2: Use GNOME Shell Eval
+
+If you prefer not to enable introspect, Mono will attempt to use the `org.gnome.Shell.Eval` method automatically. This may be restricted on some GNOME versions.
+
+### Method 3: Install a GNOME Extension
+
+Install the [window-calls](https://github.com/ickyicky/window-calls) extension:
+
+```bash
+# Using GNOME Extensions app or:
+git clone https://github.com/ickyicky/window-calls.git
+cd window-calls
+make install
+```
+
+Then restart Mono tracker:
+```bash
+pkill mono-tracker && mono-tracker &
+```
+
+### Verify Setup
+
+```bash
+mono-cli status
+```
+
+If tracking is working, you should see active window information in the TUI dashboard (`mono`).
 
 ---
 
@@ -111,18 +162,22 @@ pgrep mono-tracker # Check if running
 
 ```
 src/
-├── main.rs            # Daemon entry point
-├── lib.rs             # Core library
-├── tracker.rs         # Active window tracking
-├── session_manager.rs # Session management
-├── storage.rs        # SQLite database
-├── autostart.rs     # Autostart registration
-├── window_manager.rs # Window manager integration
-├── ipc_server.rs    # IPC server
+├── main.rs                # Daemon entry point
+├── lib.rs                 # Core library
+├── tracker.rs             # Active window tracking
+├── session_manager.rs     # Session management
+├── storage.rs            # SQLite database
+├── autostart.rs         # Autostart registration
+├── window_manager.rs     # Window manager integration
+│   ├── HyprlandManager   # Hyprland (hyprctl)
+│   ├── SwayManager       # Sway (swaymsg)
+│   ├── GnomeWaylandManager # GNOME Wayland (D-Bus)
+│   └── GenericWaylandManager # Fallback (X11 tools)
+├── ipc_server.rs        # IPC server
 └── tui/
-    ├── main.rs     # TUI dashboard
-    ├── db.rs      # Database queries
-    └── consent.rs # Consent handling
+    ├── main.rs         # TUI dashboard
+    ├── db.rs          # Database queries
+    └── consent.rs     # Consent handling
 ```
 
 ### Data Storage
@@ -155,7 +210,7 @@ cargo test           # All tests
 - **ratatui**: Terminal UI framework
 - **rusqlite**: SQLite bindings
 - **sysinfo**: System information
-- **x11**: X11 window bindings
+- **zbus**: D-Bus communication (for logind and GNOME Shell APIs)
 - **chrono**: Date/time handling
 
 ---

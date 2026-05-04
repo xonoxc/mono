@@ -3,6 +3,9 @@ name = "mono"
 version = "0.2.0"
 edition = "2021"
 description = "Screen time tracking with TUI dashboard"
+license = "MIT"
+repository = "https://github.com/xonoxc/mono"
+homepage = "https://github.com/xonoxc/mono"
 
 [[bin]]
 name = "mono"
