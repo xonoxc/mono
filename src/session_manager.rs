@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::models::Session;
 use crate::storage::Storage;
-use crate::window_manager::{WindowInfo, WindowManager};
+use crate::window_managers::{WindowInfo, WindowManager};
 
 /// Minimum session duration in seconds to persist.
 /// Prevents writing thousands of sub-second sessions during rapid alt-tab.
