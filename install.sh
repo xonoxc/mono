@@ -47,6 +47,14 @@ mkdir -p "$CONFIG_DIR"
 mkdir -p "$SYSTEMD_DIR"
 mkdir -p "$AUTOSTART_DIR"
 
+# Stop running mono-tracker before overwriting binary
+if [[ "${FORCE:-false}" == "true" ]]; then
+    echo "Stopping mono-tracker for upgrade..."
+    systemctl --user stop mono-tracker.service 2>/dev/null || true
+    pkill -9 mono-tracker 2>/dev/null || true
+    sleep 1
+fi
+
 # Install binaries
 echo "Installing binaries to ~/.local/bin..."
 cp target/release/mono "$INSTALL_DIR/"
@@ -56,13 +64,30 @@ chmod +x "$INSTALL_DIR/mono"
 chmod +x "$INSTALL_DIR/mono-tracker"
 chmod +x "$INSTALL_DIR/mono-cli"
 
-# Create systemd service
+# Remove old/duplicate services
+echo "Cleaning up old services..."
+rm -f "$SYSTEMD_DIR/screen-time-tracker.service"
+rm -f "$AUTOSTART_DIR/screen-time-tracker.desktop"
+
+# Create XDG autostart (primary method - works across all desktop environments)
+echo "Creating XDG autostart entry..."
+cat > "$AUTOSTART_DIR/mono-tracker.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=Mono Screen Time Tracker
+Exec=${INSTALL_DIR}/mono-tracker
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+Comment=Privacy-first screen time monitoring daemon
+EOF
+
+# Create systemd service (fallback for systems without XDG autostart)
 echo "Creating systemd service..."
-cat > "$SYSTEMD_DIR/mono.service" << EOF
+cat > "$SYSTEMD_DIR/mono-tracker.service" << EOF
 [Unit]
 Description=Mono Screen Time Tracker
 After=graphical-session.target
-PartOf=graphical-session.target
 
 [Service]
 Type=simple
@@ -74,36 +99,24 @@ RestartSec=10
 WantedBy=graphical-session.target
 EOF
 
-# Create XDG autostart (fallback)
-echo "Creating XDG autostart entry..."
-cat > "$AUTOSTART_DIR/mono.desktop" << EOF
-[Desktop Entry]
-Type=Application
-Name=Mono Screen Time Tracker
-Exec=${INSTALL_DIR}/mono-tracker
-Hidden=false
-NoDisplay=true
-X-GNOME-Autostart-enabled=true
-EOF
-
-# Enable systemd service
+# Enable systemd service (fallback method)
 echo "Enabling systemd service..."
 systemctl --user daemon-reload
-systemctl --user enable mono.service
+systemctl --user enable mono-tracker.service 2>/dev/null || true
 
 # Verify systemd service is enabled
 echo "Verifying systemd service..."
-if ! systemctl --user is-enabled mono.service &>/dev/null; then
-    echo "ERROR: Failed to enable systemd service"
-    exit 1
+if ! systemctl --user is-enabled mono-tracker.service &>/dev/null; then
+    echo "Note: systemd service not enabled (will rely on XDG autostart)"
 fi
-echo "Systemd service verified"
+echo "Systemd service configured"
 
 # Setup tracking if enabled
 if [[ "$ENABLE_TRACKING" == "true" ]]; then
     echo "Setting up tracking..."
     echo "1" > "$CONFIG_DIR/consent"
-    systemctl --user start mono.service
+    # Try to start via systemd first, fall back to direct execution
+    systemctl --user start mono-tracker.service 2>/dev/null || nohup "$INSTALL_DIR/mono-tracker" &>/dev/null &
 fi
 
 echo ""
@@ -114,7 +127,8 @@ if [[ "$ENABLE_TRACKING" == "true" ]]; then
     echo "Tracking is enabled and daemon is running."
     echo ""
     echo "To check status:"
-    echo "  systemctl --user status mono.service"
+    echo "  systemctl --user status mono-tracker.service"
+    echo "  or simply: mono-tracker is-running"
     echo ""
     echo "To disable tracking:"
     echo "  ./uninstall.sh"

@@ -16,7 +16,7 @@ A privacy-first screen time tracking application for Linux with a polished termi
 - **Real-Time Updates**: Live tracking of active applications
 - **Weekly Overview**: Visual bar chart of daily screen time
 - **Application Stats**: Detailed breakdown of time spent per application
-- **Hyprland Support**: Integrated with Hyprland window manager
+- **Window Manager Support**: Integrated with Hyprland, Sway, KDE, and other Wayland compositors
 
 ---
 
@@ -26,7 +26,16 @@ A privacy-first screen time tracking application for Linux with a polished termi
 - **Rust** 1.70 or later
 - **Cargo** (included with Rust)
 - **SQLite** (bundled with the application)
-- **Hyprland** (optional, for window title tracking)
+
+### Supported Desktop Environments
+
+| Environment | Status | Notes |
+|-------------|--------|-------|
+| **Hyprland** | Full support | Automatic detection |
+| **Sway** | Full support | Automatic detection |
+| **KDE (Wayland)** | Full support | Uses KWin D-Bus interface |
+| **Other Wayland** | Fallback | Basic tracking via X11 tools |
+| **X11** | Disabled | Use Wayland instead |
 
 ---
 
@@ -111,18 +120,23 @@ pgrep mono-tracker # Check if running
 
 ```
 src/
-├── main.rs            # Daemon entry point
-├── lib.rs             # Core library
-├── tracker.rs         # Active window tracking
-├── session_manager.rs # Session management
-├── storage.rs        # SQLite database
-├── autostart.rs     # Autostart registration
-├── window_manager.rs # Window manager integration
-├── ipc_server.rs    # IPC server
+├── main.rs                # Daemon entry point
+├── lib.rs                 # Core library
+├── session_manager.rs     # Session management & tracking
+├── storage.rs            # SQLite database
+├── autostart.rs         # Autostart registration
+├── window_managers/     # Window manager integrations
+│   ├── mod.rs          # WindowManager trait & detection
+│   ├── hyprland.rs     # Hyprland (hyprctl)
+│   ├── sway.rs         # Sway (swaymsg)
+│   ├── kde.rs          # KDE (KWin D-Bus)
+│   ├── generic_wayland.rs # Fallback (X11 tools)
+│   └── x11.rs          # X11 (disabled)
+├── ipc_server.rs        # IPC server
 └── tui/
-    ├── main.rs     # TUI dashboard
-    ├── db.rs      # Database queries
-    └── consent.rs # Consent handling
+    ├── main.rs         # TUI dashboard
+    ├── db.rs          # Database queries
+    └── consent.rs     # Consent handling
 ```
 
 ### Data Storage
@@ -155,7 +169,6 @@ cargo test           # All tests
 - **ratatui**: Terminal UI framework
 - **rusqlite**: SQLite bindings
 - **sysinfo**: System information
-- **x11**: X11 window bindings
 - **chrono**: Date/time handling
 
 ---
@@ -175,6 +188,6 @@ sqlite3 ~/.local/share/mono/mono.db
 sqlite3 ~/.local/share/mono/mono.db ".schema"
 ```
 
-### Hyprland Not Detected
+### Window Manager Not Detected
 
-The daemon falls back to basic tracking without window titles.
+The daemon falls back to basic tracking without window titles. Ensure you're running a supported Wayland compositor.

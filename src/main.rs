@@ -10,7 +10,7 @@ use mono::autostart;
 use mono::ipc_server;
 use mono::session_manager::SessionManager;
 use mono::storage::Storage;
-use mono::window_manager::{self};
+use mono::window_managers::{self};
 mod shutdown_handler;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
@@ -30,12 +30,12 @@ fn main() {
     let storage = Arc::new(Storage::new());
     info!("Database initialized");
 
-    let tracker = match window_manager::create_manager() {
+    let tracker = match window_managers::create_manager() {
         Some(t) => t,
         None => {
             eprintln!("ERROR: Failed to initialize window manager.");
             eprintln!(
-                "Please ensure you're running X11 or a supported Wayland compositor (Hyprland, Sway, GNOME, KDE)."
+                "Please ensure you're running a supported Wayland compositor (Hyprland, Sway, GNOME, KDE)."
             );
             std::process::exit(1);
         }

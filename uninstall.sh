@@ -12,7 +12,9 @@ echo "Uninstalling Mono..."
 # Stop running mono-tracker (both systemd and manual)
 echo "Stopping mono-tracker..."
 pkill -9 mono-tracker 2>/dev/null || true
+systemctl --user stop mono-tracker.service 2>/dev/null || true
 systemctl --user stop mono.service 2>/dev/null || true
+systemctl --user disable mono-tracker.service 2>/dev/null || true
 systemctl --user disable mono.service 2>/dev/null || true
 
 # Remove binaries
@@ -21,13 +23,17 @@ rm -f "$INSTALL_DIR/mono"
 rm -f "$INSTALL_DIR/mono-tracker"
 rm -f "$INSTALL_DIR/mono-cli"
 
-# Remove systemd service
-echo "Removing systemd service..."
+# Remove systemd services
+echo "Removing systemd services..."
+rm -f "$SYSTEMD_DIR/mono-tracker.service"
 rm -f "$SYSTEMD_DIR/mono.service"
+rm -f "$SYSTEMD_DIR/screen-time-tracker.service"
 
 # Remove XDG autostart
 echo "Removing XDG autostart entry..."
+rm -f "$AUTOSTART_DIR/mono-tracker.desktop"
 rm -f "$AUTOSTART_DIR/mono.desktop"
+rm -f "$AUTOSTART_DIR/screen-time-tracker.desktop"
 
 # Remove config directory (includes consent file)
 echo "Removing config..."
