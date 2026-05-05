@@ -16,7 +16,7 @@ A privacy-first screen time tracking application for Linux with a polished termi
 - **Real-Time Updates**: Live tracking of active applications
 - **Weekly Overview**: Visual bar chart of daily screen time
 - **Application Stats**: Detailed breakdown of time spent per application
-- **Hyprland Support**: Integrated with Hyprland window manager
+- **Window Manager Support**: Integrated with Hyprland, Sway, KDE, and other Wayland compositors
 
 ---
 
@@ -33,58 +33,16 @@ A privacy-first screen time tracking application for Linux with a polished termi
 |-------------|--------|-------|
 | **Hyprland** | Full support | Automatic detection |
 | **Sway** | Full support | Automatic detection |
-| **GNOME (Wayland)** | Supported | See [GNOME Setup](#gnome-wayland-setup) below |
-| **KDE (Wayland)** | Supported | Uses KWin D-Bus interface |
+| **KDE (Wayland)** | Full support | Uses KWin D-Bus interface |
+| **Other Wayland** | Fallback | Basic tracking via X11 tools |
 | **X11** | Disabled | Use Wayland instead |
-
----
-
-## GNOME Wayland Setup
-
-GNOME on Wayland restricts window state access for security. To enable window tracking, choose one of the following methods:
-
-### Method 1: Enable GNOME Shell Introspect (Recommended)
-
-```bash
-gsettings set org.gnome.shell introspect true
-```
-
-This enables the official `org.gnome.Shell.Introspect` D-Bus API used by Mono to detect the focused window.
-
-### Method 2: Use GNOME Shell Eval
-
-If you prefer not to enable introspect, Mono will attempt to use the `org.gnome.Shell.Eval` method automatically. This may be restricted on some GNOME versions.
-
-### Method 3: Install a GNOME Extension
-
-Install the [window-calls](https://github.com/ickyicky/window-calls) extension:
-
-```bash
-# Using GNOME Extensions app or:
-git clone https://github.com/ickyicky/window-calls.git
-cd window-calls
-make install
-```
-
-Then restart Mono tracker:
-```bash
-pkill mono-tracker && mono-tracker &
-```
-
-### Verify Setup
-
-```bash
-mono-cli status
-```
-
-If tracking is working, you should see active window information in the TUI dashboard (`mono`).
 
 ---
 
 ## Installation
 
 ```bash
-git clone https://github.com/anomalyco/mono.git
+git clone https://github.com/xonoxc/mono.git
 cd mono
 ./install.sh
 ```
@@ -164,16 +122,16 @@ pgrep mono-tracker # Check if running
 src/
 ├── main.rs                # Daemon entry point
 ├── lib.rs                 # Core library
-├── tracker.rs             # Active window tracking
-├── session_manager.rs     # Session management
+├── session_manager.rs     # Session management & tracking
 ├── storage.rs            # SQLite database
 ├── autostart.rs         # Autostart registration
-├── window_manager.rs     # Window manager integration
-│   ├── HyprlandManager   # Hyprland (hyprctl)
-│   ├── SwayManager       # Sway (swaymsg)
-│   ├── GnomeWaylandManager # GNOME Wayland (D-Bus)
-│   ├── KDEWaylandManager # KDE Wayland (KWin D-Bus)
-│   └── GenericWaylandManager # Fallback (X11 tools)
+├── window_managers/     # Window manager integrations
+│   ├── mod.rs          # WindowManager trait & detection
+│   ├── hyprland.rs     # Hyprland (hyprctl)
+│   ├── sway.rs         # Sway (swaymsg)
+│   ├── kde.rs          # KDE (KWin D-Bus)
+│   ├── generic_wayland.rs # Fallback (X11 tools)
+│   └── x11.rs          # X11 (disabled)
 ├── ipc_server.rs        # IPC server
 └── tui/
     ├── main.rs         # TUI dashboard
@@ -211,7 +169,6 @@ cargo test           # All tests
 - **ratatui**: Terminal UI framework
 - **rusqlite**: SQLite bindings
 - **sysinfo**: System information
-- **zbus**: D-Bus communication (for logind and GNOME Shell APIs)
 - **chrono**: Date/time handling
 
 ---
@@ -231,6 +188,6 @@ sqlite3 ~/.local/share/mono/mono.db
 sqlite3 ~/.local/share/mono/mono.db ".schema"
 ```
 
-### Hyprland Not Detected
+### Window Manager Not Detected
 
-The daemon falls back to basic tracking without window titles.
+The daemon falls back to basic tracking without window titles. Ensure you're running a supported Wayland compositor.
