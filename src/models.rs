@@ -66,7 +66,7 @@ impl BrowserSession {
     }
 }
 
-// ─── API Response Models ─────────────────────────────────────────
+// API Response Models
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodayUsage {
