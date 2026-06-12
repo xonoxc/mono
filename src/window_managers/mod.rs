@@ -40,27 +40,33 @@ impl DisplayServer {
             if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
                 return DisplayServer::Hyprland;
             }
+
             if std::env::var("SWAYSOCK").is_ok() {
                 return DisplayServer::Sway;
             }
+
             if std::env::var("GNOME_DESKTOP_SESSION_ID").is_ok() {
                 return DisplayServer::Gnome;
             }
+
             if std::env::var("KDE_FULL_SESSION").is_ok() {
                 return DisplayServer::KDE;
             }
+
             if std::env::var("XDG_CURRENT_DESKTOP")
                 .map(|d| d.to_lowercase().contains("gnome"))
                 .unwrap_or(false)
             {
                 return DisplayServer::Gnome;
             }
+
             if std::env::var("XDG_CURRENT_DESKTOP")
                 .map(|d| d.to_lowercase().contains("kde"))
                 .unwrap_or(false)
             {
                 return DisplayServer::KDE;
             }
+
             return DisplayServer::Wlroots;
         }
 
@@ -88,22 +94,16 @@ pub fn create_manager() -> Option<Box<dyn WindowManager>> {
         }
         DisplayServer::Sway => SwayManager::new().map(|m| Box::new(m) as Box<dyn WindowManager>),
         DisplayServer::X11 => X11Manager::new().map(|m| Box::new(m) as Box<dyn WindowManager>),
-        DisplayServer::Gnome => {
-            GnomeWaylandManager::new()
-                .map(|m| Box::new(m) as Box<dyn WindowManager>)
-                .or_else(|| {
-                    GenericWaylandManager::new()
-                        .map(|m| Box::new(m) as Box<dyn WindowManager>)
-                })
-        }
-        DisplayServer::KDE => {
-            KDEWaylandManager::new()
-                .map(|m| Box::new(m) as Box<dyn WindowManager>)
-                .or_else(|| {
-                    GenericWaylandManager::new()
-                        .map(|m| Box::new(m) as Box<dyn WindowManager>)
-                })
-        }
+        DisplayServer::Gnome => GnomeWaylandManager::new()
+            .map(|m| Box::new(m) as Box<dyn WindowManager>)
+            .or_else(|| {
+                GenericWaylandManager::new().map(|m| Box::new(m) as Box<dyn WindowManager>)
+            }),
+        DisplayServer::KDE => KDEWaylandManager::new()
+            .map(|m| Box::new(m) as Box<dyn WindowManager>)
+            .or_else(|| {
+                GenericWaylandManager::new().map(|m| Box::new(m) as Box<dyn WindowManager>)
+            }),
         DisplayServer::Wlroots => {
             if let Some(m) = HyprlandManager::new() {
                 return Some(Box::new(m) as Box<dyn WindowManager>);

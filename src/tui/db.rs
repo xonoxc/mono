@@ -1,4 +1,5 @@
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, TimeZone, Timelike};
+use log::info;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -55,6 +56,7 @@ impl TuiData {
         let conn = Connection::open(Self::db_path())
             .unwrap_or_else(|_| Connection::open_in_memory().expect("Failed to open database"));
         sanitize_tui_session_records(&conn);
+        purge_tui_old_data(&conn);
 
         Self {
             today_total: "0m".to_string(),
@@ -515,4 +517,32 @@ fn next_hour(moment: DateTime<FixedOffset>) -> DateTime<FixedOffset> {
         .with_ymd_and_hms(next.year(), next.month(), next.day(), next.hour(), 0, 0)
         .single()
         .unwrap_or(next)
+}
+
+const TUI_RETENTION_DAYS: i64 = 30;
+
+fn purge_tui_old_data(conn: &Connection) {
+    let cutoff = Local::now()
+        .checked_sub_signed(chrono::Duration::days(TUI_RETENTION_DAYS))
+        .unwrap_or_else(|| Local::now())
+        .format("%Y-%m-%d")
+        .to_string();
+
+    let deleted_sessions = conn
+        .execute("DELETE FROM sessions WHERE date < ?1", params![cutoff])
+        .unwrap_or(0);
+
+    let deleted_browser = conn
+        .execute(
+            "DELETE FROM browser_sessions WHERE date < ?1",
+            params![cutoff],
+        )
+        .unwrap_or(0);
+
+    if deleted_sessions > 0 || deleted_browser > 0 {
+        info!(
+            "TUI: purged {} sessions, {} browser sessions older than {} days (cutoff: {})",
+            deleted_sessions, deleted_browser, TUI_RETENTION_DAYS, cutoff
+        );
+    }
 }

@@ -76,9 +76,12 @@ impl GnomeWaylandManager {
             .args([
                 "call",
                 "--session",
-                "--dest", "org.gnome.Shell.Introspect",
-                "--object-path", "/org/gnome/Shell/Introspect",
-                "--method", "org.gnome.Shell.Introspect.GetWindows",
+                "--dest",
+                "org.gnome.Shell.Introspect",
+                "--object-path",
+                "/org/gnome/Shell/Introspect",
+                "--method",
+                "org.gnome.Shell.Introspect.GetWindows",
             ])
             .output()
             .ok()?;

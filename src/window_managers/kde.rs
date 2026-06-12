@@ -76,11 +76,7 @@ impl KDEWaylandManager {
 
         // Start the script
         let _ = Command::new(qdbus_cmd)
-            .args([
-                "org.kde.KWin",
-                "/Scripting",
-                "org.kde.kwin.Scripting.start",
-            ])
+            .args(["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.start"])
             .output();
 
         // Wait for script to execute

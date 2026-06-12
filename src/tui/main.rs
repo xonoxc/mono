@@ -1,16 +1,16 @@
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{
-    Frame, Terminal,
     backend::CrosstermBackend,
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Sparkline, SparklineBar},
+    Frame, Terminal,
 };
 use std::io;
 use std::time::Duration;
@@ -1052,11 +1052,13 @@ fn draw_day_labels(
         let Some((start_x, width)) = slots.get(index).copied() else {
             continue;
         };
+
         let label = if width >= 3 {
             day.label.clone()
         } else {
             day.label.chars().take(1).collect::<String>()
         };
+
         let label_len = label.len() as u16;
         let centered_x = start_x + width.saturating_sub(label_len) / 2;
         let label_x = centered_x.clamp(area.x, area.right().saturating_sub(label_len));
@@ -1067,6 +1069,7 @@ fn draw_day_labels(
         } else {
             Style::default().fg(MUTED)
         };
+
         buf.set_stringn(
             label_x,
             area.y,
@@ -1092,6 +1095,7 @@ fn app_row_parts(area: Rect) -> [Rect; 3] {
             .min(12)
             .max(6)
     };
+
     let constraints = [
         Constraint::Length(name_width),
         Constraint::Min(0),
@@ -1101,6 +1105,7 @@ fn app_row_parts(area: Rect) -> [Rect; 3] {
         .direction(Direction::Horizontal)
         .constraints(constraints)
         .split(area);
+
     [parts[0], parts[1], parts[2]]
 }
 
@@ -1169,6 +1174,7 @@ fn expand_sparkline_data(
     selected_day: usize,
 ) -> Vec<SparklineBar> {
     let mut sparkline = Vec::new();
+
     for (index, (_, width)) in slots.iter().copied().enumerate() {
         let value = data.app_trend.get(index).copied().unwrap_or(0);
         let style = Some(
@@ -1239,7 +1245,7 @@ fn format_duration(secs: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{Terminal, backend::TestBackend};
+    use ratatui::{backend::TestBackend, Terminal};
 
     #[test]
     fn dashboard_renders_wide_terminal_without_panicking() {

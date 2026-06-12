@@ -37,6 +37,7 @@ impl Storage {
 
         storage.run_migrations();
         sanitize_session_records(&storage.conn.lock());
+        storage.purge_old_data();
 
         storage
     }
@@ -187,10 +188,7 @@ impl Storage {
 
     pub fn close_all_open_sessions(&self) {
         let conn = self.conn.lock();
-        let result = conn.execute(
-            "DELETE FROM sessions WHERE end_time IS NULL",
-            params![],
-        );
+        let result = conn.execute("DELETE FROM sessions WHERE end_time IS NULL", params![]);
         if let Ok(count) = result {
             if count > 0 {
                 warn!("Deleted {} orphan sessions from previous run", count);
@@ -254,11 +252,13 @@ impl Storage {
     pub fn get_day_usage(&self, date: &str) -> TodayUsage {
         let conn = self.conn.lock();
 
-        let total_seconds: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(duration_secs), 0) FROM sessions WHERE date = ?1",
-            params![date],
-            |row| row.get(0),
-        ).unwrap_or(0);
+        let total_seconds: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(duration_secs), 0) FROM sessions WHERE date = ?1",
+                params![date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
         let mut stmt = conn
             .prepare(
@@ -364,13 +364,15 @@ impl Storage {
         let today = Local::now().format("%Y-%m-%d").to_string();
         let target = date.unwrap_or(&today);
 
-        let mut stmt = conn.prepare(
-            "SELECT id, app_name, window_title, start_time, end_time, duration_secs, 0, date
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, app_name, window_title, start_time, end_time, duration_secs, 0, date
              FROM sessions
              WHERE date = ?1
              ORDER BY start_time DESC
-             LIMIT ?2"
-        ).unwrap();
+             LIMIT ?2",
+            )
+            .unwrap();
 
         stmt.query_map(params![target, limit], |row| {
             Ok(SessionRecord {
@@ -505,6 +507,28 @@ impl Storage {
         .unwrap()
         .filter_map(|r| r.ok())
         .collect()
+    }
+
+    // ─── Data Retention ────────────────────────────────────────────
+
+    pub fn purge_old_data(&self) {
+        let conn = self.conn.lock();
+        let retention_days = get_retention_days(&conn);
+        let cutoff = Local::now()
+            .checked_sub_signed(chrono::Duration::days(retention_days))
+            .unwrap_or_else(|| Local::now())
+            .format("%Y-%m-%d")
+            .to_string();
+        purge_old_data(&conn, &cutoff);
+    }
+
+    pub fn set_retention_days(&self, days: i64) {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('retention_days', ?1)",
+            params![days.to_string()],
+        )
+        .ok();
     }
 }
 
@@ -660,6 +684,40 @@ fn parse_rfc3339(value: &str) -> Option<DateTime<FixedOffset>> {
 mod tests {
     use super::*;
 
+    fn create_full_schema(conn: &Connection) {
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                app_name TEXT NOT NULL,
+                window_title TEXT NOT NULL DEFAULT '',
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                duration_secs INTEGER DEFAULT 0,
+                is_idle INTEGER DEFAULT 0,
+                date TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE browser_sessions (
+                id TEXT PRIMARY KEY,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                domain TEXT NOT NULL DEFAULT '',
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                duration_secs INTEGER DEFAULT 0,
+                date TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+    }
+
     #[test]
     fn normalize_session_timeline_trims_overlaps() {
         let conn = Connection::open_in_memory().unwrap();
@@ -704,6 +762,150 @@ mod tests {
         assert_eq!(repaired.0, "2026-04-23T10:15:00+05:30");
         assert_eq!(repaired.1, 900);
     }
+
+    #[test]
+    fn purge_removes_sessions_older_than_retention() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_full_schema(&conn);
+
+        // Set retention to 30 days
+        conn.execute(
+            "INSERT INTO metadata (key, value) VALUES ('retention_days', '30')",
+            [],
+        )
+        .unwrap();
+
+        // Insert sessions: old (45 days ago) and recent (5 days ago)
+        let retention: i64 = 30;
+        let today = Local::now().date_naive();
+        let old_date = (today - chrono::Duration::days(45))
+            .format("%Y-%m-%d")
+            .to_string();
+        let recent_date = (today - chrono::Duration::days(5))
+            .format("%Y-%m-%d")
+            .to_string();
+
+        conn.execute(
+            "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, date)
+             VALUES ('old-session', 'kitty', '', '2026-01-01T10:00:00+00:00', '2026-01-01T10:30:00+00:00', 1800, ?1)",
+            params![old_date],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, date)
+             VALUES ('recent-session', 'code', '', '2026-05-01T10:00:00+00:00', '2026-05-01T10:30:00+00:00', 1800, ?1)",
+            params![recent_date],
+        ).unwrap();
+
+        let cutoff = (today - chrono::Duration::days(retention))
+            .format("%Y-%m-%d")
+            .to_string();
+        purge_old_data(&conn, &cutoff);
+
+        let remaining: Vec<String> = conn
+            .prepare("SELECT id FROM sessions ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(
+            remaining,
+            vec!["recent-session"],
+            "old session should be purged"
+        );
+    }
+
+    #[test]
+    fn purge_keeps_all_when_within_retention() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_full_schema(&conn);
+
+        let today = Local::now().date_naive();
+        let date = (today - chrono::Duration::days(5))
+            .format("%Y-%m-%d")
+            .to_string();
+
+        conn.execute(
+            "INSERT INTO sessions (id, app_name, window_title, start_time, end_time, duration_secs, date)
+             VALUES ('a', 'kitty', '', '2026-05-01T10:00:00+00:00', '2026-05-01T10:30:00+00:00', 1800, ?1)",
+            params![date],
+        ).unwrap();
+
+        let cutoff = (today - chrono::Duration::days(30))
+            .format("%Y-%m-%d")
+            .to_string();
+        purge_old_data(&conn, &cutoff);
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "session within retention should remain");
+    }
+
+    #[test]
+    fn purge_removes_old_browser_sessions() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_full_schema(&conn);
+
+        let today = Local::now().date_naive();
+        let old_date = (today - chrono::Duration::days(45))
+            .format("%Y-%m-%d")
+            .to_string();
+
+        conn.execute(
+            "INSERT INTO browser_sessions (id, url, title, domain, start_time, end_time, duration_secs, date)
+             VALUES ('old-browser', 'https://old.com', 'Old', 'old.com', '2026-01-01T10:00:00+00:00', '2026-01-01T10:30:00+00:00', 1800, ?1)",
+            params![old_date],
+        ).unwrap();
+
+        let cutoff = (today - chrono::Duration::days(30))
+            .format("%Y-%m-%d")
+            .to_string();
+        purge_old_data(&conn, &cutoff);
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM browser_sessions", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "old browser session should be purged");
+    }
+
+    #[test]
+    fn purge_handles_empty_tables() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_full_schema(&conn);
+
+        let today = Local::now().date_naive();
+        let cutoff = (today - chrono::Duration::days(30))
+            .format("%Y-%m-%d")
+            .to_string();
+        purge_old_data(&conn, &cutoff);
+    }
+
+    #[test]
+    fn get_retention_days_returns_default_when_not_set() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_full_schema(&conn);
+
+        assert_eq!(get_retention_days(&conn), 30);
+    }
+
+    #[test]
+    fn get_retention_days_returns_stored_value() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_full_schema(&conn);
+
+        conn.execute(
+            "INSERT INTO metadata (key, value) VALUES ('retention_days', '60')",
+            [],
+        )
+        .unwrap();
+
+        assert_eq!(get_retention_days(&conn), 60);
+    }
 }
 
 fn end_of_day(date_text: &str, offset: &FixedOffset) -> Option<DateTime<FixedOffset>> {
@@ -713,6 +915,39 @@ fn end_of_day(date_text: &str, offset: &FixedOffset) -> Option<DateTime<FixedOff
         .from_local_datetime(&naive)
         .single()
         .or_else(|| Some(offset.from_utc_datetime(&naive)))
+}
+
+// ─── Data Retention ────────────────────────────────────────────
+
+/// Returns the number of days to retain data. Defaults to 30 if not configured.
+pub(crate) fn get_retention_days(conn: &Connection) -> i64 {
+    conn.query_row(
+        "SELECT value FROM metadata WHERE key = 'retention_days'",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(30)
+}
+
+/// Deletes sessions and browser_sessions older than the given cutoff date (YYYY-MM-DD).
+pub(crate) fn purge_old_data(conn: &Connection, cutoff: &str) {
+    let deleted_sessions = conn
+        .execute("DELETE FROM sessions WHERE date < ?1", params![cutoff])
+        .unwrap_or(0);
+    let deleted_browser = conn
+        .execute(
+            "DELETE FROM browser_sessions WHERE date < ?1",
+            params![cutoff],
+        )
+        .unwrap_or(0);
+    if deleted_sessions > 0 || deleted_browser > 0 {
+        info!(
+            "Purged {} sessions, {} browser sessions older than {}",
+            deleted_sessions, deleted_browser, cutoff
+        );
+    }
 }
 
 // Allow Storage to be shared across threads via Arc
