@@ -55,6 +55,7 @@ impl TuiData {
     pub fn new() -> Self {
         let conn = Connection::open(Self::db_path())
             .unwrap_or_else(|_| Connection::open_in_memory().expect("Failed to open database"));
+
         sanitize_tui_session_records(&conn);
         purge_tui_old_data(&conn);
 

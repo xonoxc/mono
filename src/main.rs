@@ -16,7 +16,9 @@ mod shutdown_handler;
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+    let default_info_logger = env_logger::Env::default().default_filter_or("info");
+
+    env_logger::Builder::from_env(default_info_logger)
         .format_timestamp_secs()
         .init();
 

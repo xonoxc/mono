@@ -28,7 +28,10 @@ pub struct CategoryUpdate {
 }
 
 async fn health() -> HttpResponse {
-    HttpResponse::Ok().json(serde_json::json!({ "status": "ok", "service": "screen-time-tracker" }))
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "ok",
+        "service": "screen-time-tracker"
+    }))
 }
 
 async fn today_usage(state: web::Data<AppState>) -> HttpResponse {
