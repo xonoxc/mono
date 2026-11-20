@@ -516,7 +516,7 @@ fn render_weekly(f: &mut Frame, area: Rect, data: &TuiData, selected_day: usize,
     let border_color = if focused { ACCENT } else { MUTED };
     let selected = data.weekly.get(selected_day);
     let subtitle = selected
-        .map(|day| format!(" {} {}", day.label, format_duration(day.seconds)))
+        .map(|day| format!(" {} {} ", day.label, format_duration(day.seconds)))
         .unwrap_or_else(|| " No data".to_string());
     let title = Line::from(vec![
         Span::styled(
@@ -586,7 +586,7 @@ fn render_apps(
     let day_label = data
         .weekly
         .get(selected_day)
-        .map(|day| format!(" {} {}", day.label, format_duration(day.seconds)))
+        .map(|day| format!(" {} {} ", day.label, format_duration(day.seconds)))
         .unwrap_or_else(|| " Selected day".to_string());
     let title = Line::from(vec![
         Span::styled(
@@ -742,14 +742,14 @@ fn render_trend(
     let trend_label = data
         .apps
         .get(selected_app)
-        .map(|app| truncate_text(&app.name, 16))
+        .map(|app| truncate_text(&app.name, (area.width as usize).saturating_sub(10)))
         .unwrap_or_else(|| "selected app".to_string());
     let title = Line::from(vec![
         Span::styled(
             " Trend ",
             Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!(" {}", trend_label), Style::default().fg(ACCENT)),
+        Span::styled(format!(" {} ", trend_label), Style::default().fg(ACCENT)),
     ]);
     let inner = render_panel(f, area, title, MUTED);
     if inner.width < 10 || inner.height < 3 {
