@@ -742,7 +742,7 @@ fn render_trend(
     let trend_label = data
         .apps
         .get(selected_app)
-        .map(|app| truncate_text(&app.name, 16))
+        .map(|app| truncate_text(&app.name, (area.width as usize).saturating_sub(10)))
         .unwrap_or_else(|| "selected app".to_string());
     let title = Line::from(vec![
         Span::styled(
